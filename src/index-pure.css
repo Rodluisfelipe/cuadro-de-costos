@@ -1,0 +1,415 @@
+/* CSS Puro para Cuadro de Costos - Versión de respaldo */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  line-height: 1.6;
+  color: #1a202c;
+  background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+  min-height: 100vh;
+}
+
+/* Tema oscuro */
+body.dark {
+  color: #f7fafc;
+  background: linear-gradient(135deg, #1a202c 0%, #2d3748 100%);
+}
+
+/* Layout principal */
+.min-h-screen {
+  min-height: 100vh;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+/* Header */
+.header {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid #e2e8f0;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  padding: 1rem 0;
+}
+
+.dark .header {
+  background: rgba(26, 32, 44, 0.8);
+  border-bottom-color: #4a5568;
+}
+
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.title {
+  font-size: 2rem;
+  font-weight: bold;
+  background: linear-gradient(135deg, #3182ce, #805ad5);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.toolbar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* Botones */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+  text-decoration: none;
+}
+
+.btn-primary {
+  background: #3182ce;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #2c5282;
+}
+
+.btn-outline {
+  background: transparent;
+  color: #3182ce;
+  border: 1px solid #3182ce;
+}
+
+.btn-outline:hover {
+  background: #3182ce;
+  color: white;
+}
+
+.dark .btn-outline {
+  color: #63b3ed;
+  border-color: #63b3ed;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: #4a5568;
+}
+
+.btn-ghost:hover {
+  background: #f7fafc;
+}
+
+.dark .btn-ghost {
+  color: #a0aec0;
+}
+
+.dark .btn-ghost:hover {
+  background: #2d3748;
+}
+
+.btn-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  justify-content: center;
+}
+
+/* Cards */
+.card {
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(10px);
+  border-radius: 1rem;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e2e8f0;
+}
+
+.dark .card {
+  background: rgba(45, 55, 72, 0.5);
+  border-color: #4a5568;
+}
+
+.card-content {
+  padding: 1.5rem;
+}
+
+/* Tabla */
+.table-container {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  padding: 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.875rem;
+  border-bottom: 2px solid #e2e8f0;
+  background: #f7fafc;
+}
+
+.dark .table th {
+  border-bottom-color: #4a5568;
+  background: #2d3748;
+}
+
+.table td {
+  padding: 0.5rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.dark .table td {
+  border-bottom-color: #4a5568;
+}
+
+.table tr:hover {
+  background: #f7fafc;
+}
+
+.dark .table tr:hover {
+  background: #2d3748;
+}
+
+/* Inputs */
+.input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  background: white;
+  color: #1f2937;
+  font-size: 0.875rem;
+  transition: all 0.2s;
+}
+
+.input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.dark .input {
+  background: #374151;
+  border-color: #6b7280;
+  color: #f9fafb;
+}
+
+.input-transparent {
+  border: none;
+  background: transparent;
+  text-align: center;
+}
+
+.input-transparent:focus {
+  background: white;
+  box-shadow: 0 0 0 2px #3b82f6;
+}
+
+.dark .input-transparent:focus {
+  background: #374151;
+}
+
+/* Colores de texto */
+.text-green {
+  color: #059669;
+}
+
+.dark .text-green {
+  color: #34d399;
+}
+
+.text-red {
+  color: #dc2626;
+}
+
+.dark .text-red {
+  color: #f87171;
+}
+
+.text-blue {
+  color: #2563eb;
+}
+
+.dark .text-blue {
+  color: #60a5fa;
+}
+
+.text-gray {
+  color: #6b7280;
+}
+
+.dark .text-gray {
+  color: #9ca3af;
+}
+
+/* Fondos de colores */
+.bg-green-light {
+  background: #f0fdf4;
+  padding: 0.5rem;
+  border-radius: 0.375rem;
+}
+
+.dark .bg-green-light {
+  background: rgba(5, 150, 105, 0.2);
+}
+
+.bg-red-light {
+  background: #fef2f2;
+  padding: 0.5rem;
+  border-radius: 0.375rem;
+}
+
+.dark .bg-red-light {
+  background: rgba(220, 38, 38, 0.2);
+}
+
+.bg-gray-light {
+  background: #f9fafb;
+}
+
+.dark .bg-gray-light {
+  background: #374151;
+}
+
+/* Botón flotante */
+.floating-btn {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  color: white;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s;
+  z-index: 40;
+}
+
+.floating-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+}
+
+/* Utilities */
+.font-bold {
+  font-weight: bold;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.flex {
+  display: flex;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.gap-2 {
+  gap: 0.5rem;
+}
+
+.gap-4 {
+  gap: 1rem;
+}
+
+.mb-4 {
+  margin-bottom: 1rem;
+}
+
+.p-4 {
+  padding: 1rem;
+}
+
+.hidden {
+  display: none;
+}
+
+/* Responsive */
+@media (min-width: 1024px) {
+  .lg\\:block {
+    display: block;
+  }
+  
+  .lg\\:hidden {
+    display: none;
+  }
+}
+
+@media (max-width: 1023px) {
+  .lg\\:hidden {
+    display: block;
+  }
+  
+  .lg\\:block {
+    display: none;
+  }
+}
+
+/* Grid para móvil */
+.mobile-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+.mobile-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+/* Animaciones */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Labels para móvil */
+.mobile-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+  display: block;
+}
