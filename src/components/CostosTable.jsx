@@ -785,174 +785,215 @@ const CostosTable = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
-      {/* Header y Navbar */}
-      <div className="sticky top-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-700">
-        <div className="w-full px-4 py-4">
-          <div className="flex items-center justify-between">
+      {/* Header Increíble - No fijo pero con diseño espectacular */}
+      <div className="w-full px-4 py-6 bg-white/70 dark:bg-gray-900/70 backdrop-blur-lg border-b border-gray-200/50 dark:border-gray-700/50">
+        <div className="max-w-7xl mx-auto">
+          
+          {/* Primera fila: Logo con gradiente + Tema */}
+          <div className="flex items-center justify-between mb-6">
             <motion.h1 
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
-              className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent"
+              className="text-2xl lg:text-3xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent flex-shrink-0"
             >
               📊 Cuadro de Costos
             </motion.h1>
             
-            <div className="flex items-center gap-3 flex-wrap mb-4">
-              {/* Campo Cliente */}
-              <div className="bg-purple-50 dark:bg-purple-900/20 px-3 py-2 rounded-lg border border-purple-200 dark:border-purple-700 shadow-sm min-w-[200px]">
-                <div className="flex items-center gap-2 mb-1">
-                  <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-                  <label className="text-xs text-purple-700 dark:text-purple-300 font-medium">
-                    Cliente
-                  </label>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+              className="h-10 w-10 rounded-full bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/30 dark:to-purple-900/30 border border-blue-200 dark:border-blue-700 hover:shadow-lg transition-all duration-300"
+            >
+              {theme === "light" ? 
+                <Moon className="h-5 w-5 text-blue-600 dark:text-blue-400" /> : 
+                <Sun className="h-5 w-5 text-yellow-500" />
+              }
+            </Button>
+          </div>
+
+          {/* Segunda fila: Campos hermosos en grid responsive */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+            
+            {/* Campo Cliente - Diseño hermoso */}
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 p-4 rounded-xl border border-purple-200/60 dark:border-purple-700/60 shadow-lg hover:shadow-xl transition-all duration-300"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-3 h-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full shadow-lg"></div>
+                <label className="text-sm font-semibold text-purple-700 dark:text-purple-300">
+                  Cliente
+                </label>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <span className="text-lg">👤</span>
+                <Input
+                  type="text"
+                  value={clienteName}
+                  onChange={(e) => setClienteName(e.target.value)}
+                  className="flex-1 h-9 text-sm font-medium bg-white/80 dark:bg-gray-800/80 border-purple-200 dark:border-purple-700 focus:border-purple-400 dark:focus:border-purple-500 text-purple-800 dark:text-purple-200 rounded-lg backdrop-blur-sm"
+                  placeholder="Nombre del cliente"
+                  autoComplete="off"
+                />
+              </div>
+              
+              <div className="text-xs text-purple-600 dark:text-purple-400 mt-2 opacity-80">
+                Para cotización
+              </div>
+            </motion.div>
+
+            {/* TRM Global - Diseño hermoso */}
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 p-4 rounded-xl border border-blue-200/60 dark:border-blue-700/60 shadow-lg hover:shadow-xl transition-all duration-300"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-3 h-3 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full shadow-lg"></div>
+                <div className="text-sm font-semibold text-blue-700 dark:text-blue-300">
+                  TRM Global
                 </div>
-                
+              </div>
+              
+              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-purple-600 dark:text-purple-400">👤</span>
+                  <span className="text-lg">💰</span>
                   <Input
-                    type="text"
-                    value={clienteName}
-                    onChange={(e) => setClienteName(e.target.value)}
-                    className="flex-1 h-7 text-sm font-medium bg-white dark:bg-gray-800 border-purple-200 dark:border-purple-700 focus:border-purple-400 dark:focus:border-purple-500 text-purple-800 dark:text-purple-200"
-                    placeholder="Nombre del cliente"
+                    id="trm-global"
+                    name="trm-global"
+                    type="number"
+                    value={trmGlobal}
+                    onChange={(e) => updateGlobalTRM(parseNumber(e.target.value))}
+                    className="w-24 h-9 text-sm font-mono font-bold bg-white/80 dark:bg-gray-800/80 border-blue-200 dark:border-blue-700 focus:border-blue-400 dark:focus:border-blue-500 text-blue-800 dark:text-blue-200 text-center rounded-lg backdrop-blur-sm"
+                    placeholder="4200"
                     autoComplete="off"
                   />
                 </div>
                 
-                <div className="text-xs text-purple-600 dark:text-purple-400 mt-1 opacity-75">
-                  Para cotización
-                </div>
+                <div className="text-lg">⚙️</div>
               </div>
-
-              {/* TRM Global - Mejorado */}
-              <div className="bg-blue-50 dark:bg-blue-900/20 px-3 py-2 rounded-lg border border-blue-200 dark:border-blue-700 shadow-sm min-w-[160px]">
-                <div className="flex items-center gap-2 mb-1">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                  <div className="text-xs text-blue-700 dark:text-blue-300 font-medium">
-                    TRM Global (Trabajo)
-                  </div>
-                </div>
-                
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs text-blue-600 dark:text-blue-400">$</span>
-                    <Input
-                      id="trm-global"
-                      name="trm-global"
-                      type="number"
-                      value={trmGlobal}
-                      onChange={(e) => updateGlobalTRM(parseNumber(e.target.value))}
-                      className="w-20 h-7 text-sm font-mono font-semibold bg-white dark:bg-gray-800 border-blue-200 dark:border-blue-700 focus:border-blue-400 dark:focus:border-blue-500 text-blue-800 dark:text-blue-200 text-center"
-                      placeholder="4200"
-                      autoComplete="off"
-                    />
-                  </div>
-                  
-                  {/* Indicador de estado */}
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs text-blue-500">⚙️</span>
-                  </div>
-                </div>
-                
-                <div className="text-xs text-blue-600 dark:text-blue-400 mt-1 opacity-75">
-                  Para cálculos
+              
+              <div className="text-xs text-blue-600 dark:text-blue-400 mt-2 opacity-80">
+                Para cálculos
+              </div>
+            </motion.div>
+            
+            {/* TRM Oficial - Diseño hermoso */}
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 p-4 rounded-xl border border-green-200/60 dark:border-green-700/60 shadow-lg hover:shadow-xl transition-all duration-300 md:col-span-2 lg:col-span-1"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-3 h-3 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full shadow-lg animate-pulse"></div>
+                <div className="text-sm font-semibold text-green-700 dark:text-green-300">
+                  TRM Oficial
                 </div>
               </div>
               
-              {/* TRM Oficial - Solo Informativo */}
-              <div className="bg-gray-50 dark:bg-gray-800/50 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm min-w-[180px]">
-                <div className="flex items-center gap-2 mb-1">
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  <div className="text-xs text-gray-600 dark:text-gray-400 font-medium">
-                    TRM Oficial (Referencia)
-                  </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">🇨🇴</span>
+                  {trmLoading ? (
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 border-2 border-green-400 border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-sm text-green-600 dark:text-green-400">Consultando...</span>
+                    </div>
+                  ) : trmError ? (
+                    <div className="text-sm text-red-500 dark:text-red-400">
+                      No disponible
+                    </div>
+                  ) : oficialTRM ? (
+                    <div className="text-lg font-mono font-bold text-green-700 dark:text-green-300">
+                      ${oficialTRM.toFixed(2)}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-green-600 dark:text-green-400">
+                      Cargando...
+                    </div>
+                  )}
                 </div>
                 
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    {trmLoading ? (
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">Consultando...</span>
-                      </div>
-                    ) : trmError ? (
-                      <div className="text-xs text-red-500 dark:text-red-400">
-                        No disponible
-                      </div>
-                    ) : oficialTRM ? (
-                      <div className="text-sm font-mono font-semibold text-gray-700 dark:text-gray-300">
-                        ${oficialTRM.toFixed(2)}
-                      </div>
-                    ) : (
-                      <div className="text-xs text-gray-400">
-                        Cargando...
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* Indicador de fuente oficial */}
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs text-gray-500">🇨🇴</span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">datos.gov.co</span>
-                  </div>
+                <div className="text-xs text-green-600 dark:text-green-400 opacity-75">
+                  datos.gov.co
                 </div>
-                
-                {lastTrmUpdate && (
-                  <div className="text-xs text-gray-500 dark:text-gray-500 mt-1 opacity-75">
-                    {lastTrmUpdate}
-                  </div>
-                )}
               </div>
-              {/* Botón Guardar */}
-              <Button 
-                onClick={saveQuote}
-                variant="outline" 
-                size="sm"
-                className="bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/30"
-              >
-                <Save className="h-4 w-4 mr-2" />
-                Guardar
-              </Button>
+              
+              {lastTrmUpdate && (
+                <div className="text-xs text-green-600 dark:text-green-400 mt-2 opacity-75">
+                  {lastTrmUpdate}
+                </div>
+              )}
+            </motion.div>
+          </div>
 
-              {/* Mensaje de éxito */}
+          {/* Tercera fila: Botones de acción hermosos */}
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            className="flex flex-wrap items-center gap-3"
+          >
+            
+            {/* Botón Guardar */}
+            <Button 
+              onClick={saveQuote}
+              className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+              size="sm"
+            >
+              <Save className="h-4 w-4 mr-2" />
+              <span className="hidden sm:inline">Guardar</span>
+            </Button>
+
+            {/* Mensaje de éxito con estilo */}
+            <AnimatePresence>
               {saveSuccess && (
                 <motion.div
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.8 }}
-                  className="bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300 px-3 py-1 rounded-lg text-sm font-medium"
+                  initial={{ opacity: 0, scale: 0.8, x: -20 }}
+                  animate={{ opacity: 1, scale: 1, x: 0 }}
+                  exit={{ opacity: 0, scale: 0.8, x: 20 }}
+                  className="bg-gradient-to-r from-green-100 to-emerald-100 dark:from-green-900/50 dark:to-emerald-900/50 text-green-700 dark:text-green-300 px-4 py-2 rounded-lg text-sm font-bold shadow-lg border border-green-200 dark:border-green-700"
                 >
-                  ✅ Guardado
+                  ✅ Guardado exitosamente
                 </motion.div>
               )}
+            </AnimatePresence>
 
-              <Button 
-                onClick={() => exportToPDF()}
-                variant="outline" 
-                size="sm"
-                className="bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-700 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/30"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Exportar PDF
-              </Button>
+            {/* Botón Exportar PDF */}
+            <Button 
+              onClick={() => exportToPDF()}
+              className="bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+              size="sm"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              <span className="hidden sm:inline">Exportar PDF</span>
+            </Button>
 
-              <Button variant="outline" size="sm">
-                <FileText className="h-4 w-4 mr-2" />
-                Nuevo
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-                className="h-9 w-9"
-              >
-                {theme === "light" ? 
-                  <Moon className="h-4 w-4" /> : 
-                  <Sun className="h-4 w-4" />
-                }
-              </Button>
+            {/* Botón Nuevo */}
+            <Button 
+              variant="outline"
+              className="bg-gradient-to-r from-gray-50 to-slate-50 dark:from-gray-800 dark:to-slate-800 border-gray-200 dark:border-gray-600 hover:shadow-lg transition-all duration-300 transform hover:scale-105"
+              size="sm"
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              <span className="hidden sm:inline">Nuevo</span>
+            </Button>
+
+            {/* Espaciador */}
+            <div className="flex-1 hidden lg:block"></div>
+            
+            {/* Badge de estado */}
+            <div className="hidden lg:flex items-center gap-2 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/30 dark:to-purple-900/30 px-3 py-1 rounded-full border border-blue-200 dark:border-blue-700">
+              <div className="w-2 h-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full animate-pulse"></div>
+              <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Sistema Activo</span>
             </div>
-          </div>
+          </motion.div>
         </div>
       </div>
 
