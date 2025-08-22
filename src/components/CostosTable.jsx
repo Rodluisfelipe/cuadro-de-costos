@@ -1,8 +1,59 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, X, Moon, Sun, Download, FileText, Save } from 'lucide-react'
+import { Plus, X, Moon, Sun, Download, FileText, Save, Send } from 'lucide-react'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
+
+// Utilidades para IDs únicos y codificación
+const generateUniqueId = () => {
+  const timestamp = Date.now()
+  const random = Math.random().toString(36).substr(2, 9)
+  return `COT-${timestamp}-${random}`.toUpperCase()
+}
+
+const encodeQuoteToBase64 = (quote) => {
+  try {
+    const jsonString = JSON.stringify(quote)
+    return btoa(unescape(encodeURIComponent(jsonString)))
+  } catch (error) {
+    console.error('Error codificando cotización:', error)
+    return null
+  }
+}
+
+const decodeQuoteFromBase64 = (base64String) => {
+  try {
+    const jsonString = decodeURIComponent(escape(atob(base64String)))
+    return JSON.parse(jsonString)
+  } catch (error) {
+    console.error('Error decodificando cotización:', error)
+    return null
+  }
+}
+
+const generateApprovalLink = (quote) => {
+  const encodedQuote = encodeQuoteToBase64(quote)
+  if (!encodedQuote) return null
+  
+  const baseUrl = window.location.origin + window.location.pathname
+  return `${baseUrl}?approval=${encodedQuote}`
+}
+
+const generateWhatsAppMessage = (quoteId, status, reason = '') => {
+  const baseMessage = `🏢 *RESPUESTA DE APROBACIÓN*\n\n📋 *ID Cotización:* ${quoteId}\n`
+  
+  if (status === 'approved') {
+    return baseMessage + `✅ *Estado:* APROBADA\n\n¡La cotización ha sido aprobada y puede proceder!`
+  } else {
+    return baseMessage + `❌ *Estado:* DENEGADA\n📝 *Razón:* ${reason}\n\nPor favor revise y ajuste según los comentarios.`
+  }
+}
+
+const openWhatsApp = (message, phone = '') => {
+  const encodedMessage = encodeURIComponent(message)
+  const whatsappUrl = `https://wa.me/${phone}?text=${encodedMessage}`
+  window.open(whatsappUrl, '_blank')
+}
 import { Card, CardContent } from './ui/card'
 import { useTheme } from '../hooks/useTheme.jsx'
 import { formatCurrency, formatPercentage, parseNumber, cn } from '../lib/utils'
@@ -133,6 +184,16 @@ const CostosTable = () => {
   
   // Estado para controlar items colapsados en móvil
   const [collapsedItems, setCollapsedItems] = useState(new Set())
+  
+  // Estados para gestión de cotizaciones guardadas
+  const [showSavedQuotes, setShowSavedQuotes] = useState(false)
+  const [editingQuote, setEditingQuote] = useState(null)
+  
+  // Estados para sistema de aprobación
+  const [showApprovalLink, setShowApprovalLink] = useState(false)
+  const [generatedLink, setGeneratedLink] = useState('')
+  const [approvalQuote, setApprovalQuote] = useState(null)
+  const [showApprovalView, setShowApprovalView] = useState(false)
 
   // Función para obtener TRM oficial de datos.gov.co (GOBIERNO COLOMBIANO)
   const fetchOficialTRM = async () => {
@@ -176,6 +237,21 @@ const CostosTable = () => {
   useEffect(() => {
     fetchOficialTRM()
     loadSavedQuotes()
+    
+    // Verificar si hay un enlace de aprobación en la URL
+    const urlParams = new URLSearchParams(window.location.search)
+    const approvalData = urlParams.get('approval')
+    
+    if (approvalData) {
+      const decodedQuote = decodeQuoteFromBase64(approvalData)
+      if (decodedQuote) {
+        setApprovalQuote(decodedQuote)
+        setShowApprovalView(true)
+        console.log('📋 Cotización para aprobación cargada:', decodedQuote)
+      } else {
+        alert('Error: El enlace de aprobación no es válido')
+      }
+    }
   }, [])
 
   // Funciones para localStorage
@@ -207,20 +283,31 @@ const CostosTable = () => {
     }
 
     const quote = {
-      id: Date.now(),
+      id: editingQuote ? editingQuote.id : generateUniqueId(),
       clienteName: clienteName.trim(),
       trmGlobal,
       rows,
       totalGeneral: rows.reduce((sum, row) => sum + (row.pvpTotal || 0), 0),
-      date: new Date().toISOString(),
-      dateFormatted: new Date().toLocaleString('es-CO')
+      date: editingQuote ? editingQuote.date : new Date().toISOString(),
+      dateFormatted: editingQuote ? editingQuote.dateFormatted : new Date().toLocaleString('es-CO'),
+      status: editingQuote ? editingQuote.status : 'draft' // draft, pending_approval, approved, denied
     }
 
     console.log('📋 Cotización a guardar:', quote)
     console.log('📊 Cotizaciones existentes:', savedQuotes)
 
     try {
-      const updated = [...savedQuotes, quote]
+      let updated
+      if (editingQuote) {
+        // Actualizar cotización existente
+        updated = savedQuotes.map(q => q.id === editingQuote.id ? quote : q)
+        console.log('🔄 Actualizando cotización existente')
+      } else {
+        // Crear nueva cotización
+        updated = [...savedQuotes, quote]
+        console.log('➕ Creando nueva cotización')
+      }
+      
       console.log('📦 Cotizaciones actualizadas:', updated)
       
       localStorage.setItem('costos-quotes', JSON.stringify(updated))
@@ -228,6 +315,12 @@ const CostosTable = () => {
       
       setSavedQuotes(updated)
       setSaveSuccess(true)
+      
+      // Si estábamos editando, limpiar el estado de edición
+      if (editingQuote) {
+        setEditingQuote(null)
+        console.log('🔄 Modo edición finalizado')
+      }
       
       // Verificar que se guardó correctamente
       const verification = localStorage.getItem('costos-quotes')
@@ -259,6 +352,133 @@ const CostosTable = () => {
       setSavedQuotes([])
       console.log('🗑️ localStorage limpiado')
     }
+  }
+
+  // Funciones para gestión de cotizaciones guardadas
+  const loadQuote = (quote) => {
+    setClienteName(quote.clienteName)
+    setTrmGlobal(quote.trmGlobal)
+    setRows(quote.rows)
+    setEditingQuote(quote)
+    setShowSavedQuotes(false)
+    console.log('📂 Cotización cargada para edición:', quote)
+  }
+
+  const deleteQuote = (quoteId) => {
+    if (confirm('¿Estás seguro de que quieres eliminar esta cotización?')) {
+      const updated = savedQuotes.filter(q => q.id !== quoteId)
+      localStorage.setItem('costos-quotes', JSON.stringify(updated))
+      setSavedQuotes(updated)
+      console.log('🗑️ Cotización eliminada:', quoteId)
+    }
+  }
+
+  const exportQuotePDF = (quote) => {
+    // Temporalmente cargar la cotización para exportar
+    const currentClientName = clienteName
+    const currentTrmGlobal = trmGlobal
+    const currentRows = rows
+    
+    setClienteName(quote.clienteName)
+    setTrmGlobal(quote.trmGlobal)
+    setRows(quote.rows)
+    
+    setTimeout(() => {
+      exportToPDF()
+      // Restaurar estado original
+      setClienteName(currentClientName)
+      setTrmGlobal(currentTrmGlobal)
+      setRows(currentRows)
+    }, 100)
+  }
+
+  const duplicateQuote = (quote) => {
+    const duplicated = {
+      ...quote,
+      id: Date.now(),
+      clienteName: `${quote.clienteName} (Copia)`,
+      date: new Date().toISOString(),
+      dateFormatted: new Date().toLocaleString('es-CO')
+    }
+    
+    const updated = [...savedQuotes, duplicated]
+    localStorage.setItem('costos-quotes', JSON.stringify(updated))
+    setSavedQuotes(updated)
+    console.log('📋 Cotización duplicada:', duplicated)
+  }
+
+  const newQuote = () => {
+    if (editingQuote || rows.length > 0 || clienteName.trim()) {
+      if (confirm('¿Estás seguro de que quieres crear una nueva cotización? Se perderán los cambios no guardados.')) {
+        setClienteName('')
+        setRows([])
+        setEditingQuote(null)
+        setShowSavedQuotes(false)
+        setCollapsedItems(new Set())
+        setShowApprovalLink(false)
+        setShowApprovalView(false)
+        console.log('📝 Nueva cotización iniciada')
+      }
+    } else {
+      setShowSavedQuotes(false)
+    }
+  }
+
+  // Funciones para sistema de aprobación
+  const sendForApproval = () => {
+    if (!clienteName.trim()) {
+      alert('Por favor ingresa el nombre del cliente antes de enviar a aprobación')
+      return
+    }
+
+    if (rows.length === 0) {
+      alert('Por favor añade al menos un item antes de enviar a aprobación')
+      return
+    }
+
+    const quote = {
+      id: editingQuote ? editingQuote.id : generateUniqueId(),
+      clienteName: clienteName.trim(),
+      trmGlobal,
+      rows,
+      totalGeneral: rows.reduce((sum, row) => sum + (row.pvpTotal || 0), 0),
+      date: editingQuote ? editingQuote.date : new Date().toISOString(),
+      dateFormatted: editingQuote ? editingQuote.dateFormatted : new Date().toLocaleString('es-CO'),
+      status: 'pending_approval',
+      trmOficial: oficialTRM,
+      lastTrmUpdate: lastTrmUpdate
+    }
+
+    const approvalLink = generateApprovalLink(quote)
+    if (approvalLink) {
+      setGeneratedLink(approvalLink)
+      setShowApprovalLink(true)
+      console.log('🔗 Enlace de aprobación generado:', approvalLink)
+    } else {
+      alert('Error al generar el enlace de aprobación')
+    }
+  }
+
+  const copyApprovalLink = () => {
+    navigator.clipboard.writeText(generatedLink).then(() => {
+      alert('¡Enlace copiado al portapapeles!')
+    }).catch(() => {
+      alert('Error al copiar el enlace')
+    })
+  }
+
+  const handleApproval = (approved, reason = '') => {
+    if (!approvalQuote) return
+
+    const status = approved ? 'approved' : 'denied'
+    const message = generateWhatsAppMessage(approvalQuote.id, status, reason)
+    
+    // Aquí podrías guardar el estado de aprobación si tuvieras una base de datos
+    console.log(`📋 Cotización ${approvalQuote.id} ${status}:`, reason)
+    
+    openWhatsApp(message)
+    setShowApprovalView(false)
+    setApprovalQuote(null)
   }
 
   // Función para exportar PDF DETALLADO con diseño intuitivo
@@ -1122,7 +1342,7 @@ const CostosTable = () => {
               size="sm"
             >
               <Save className="h-4 w-4 mr-2" />
-              <span className="hidden sm:inline">Guardar</span>
+              <span className="hidden sm:inline">{editingQuote ? 'Actualizar' : 'Guardar'}</span>
             </Button>
 
             {/* Mensaje de éxito con estilo */}
@@ -1149,44 +1369,54 @@ const CostosTable = () => {
               <span className="hidden sm:inline">Exportar PDF</span>
             </Button>
 
+            {/* Botón Ver Cotizaciones */}
+            <Button 
+              onClick={() => setShowSavedQuotes(!showSavedQuotes)}
+              className="bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+              size="sm"
+            >
+              <div className="h-4 w-4 mr-2">📋</div>
+              <span className="hidden sm:inline">Cotizaciones ({savedQuotes.length})</span>
+              <span className="sm:hidden">({savedQuotes.length})</span>
+            </Button>
+
+            {/* Botón Enviar a Aprobación */}
+            <Button 
+              onClick={sendForApproval}
+              className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+              size="sm"
+            >
+              <Send className="h-4 w-4 mr-2" />
+              <span className="hidden sm:inline">Enviar a Aprobación</span>
+              <span className="sm:hidden">📤</span>
+            </Button>
+
             {/* Botón Nuevo */}
             <Button 
+              onClick={newQuote}
               variant="outline"
               className="bg-gradient-to-r from-gray-50 to-slate-50 dark:from-gray-800 dark:to-slate-800 border-gray-200 dark:border-gray-600 hover:shadow-lg transition-all duration-300 transform hover:scale-105"
               size="sm"
             >
-              <FileText className="h-4 w-4 mr-2" />
+              <Plus className="h-4 w-4 mr-2" />
               <span className="hidden sm:inline">Nuevo</span>
             </Button>
 
             {/* Espaciador */}
             <div className="flex-1 hidden lg:block"></div>
-            
-            {/* Botones de debugging (temporales) */}
-            <div className="flex items-center gap-2">
-              <Button 
-                onClick={debugLocalStorage}
-                variant="outline" 
-                size="sm"
-                className="bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-700 text-yellow-700 dark:text-yellow-300 text-xs"
-              >
-                🔍 Debug
-              </Button>
-              <Button 
-                onClick={clearLocalStorage}
-                variant="outline" 
-                size="sm"
-                className="bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-700 text-red-700 dark:text-red-300 text-xs"
-              >
-                🗑️ Limpiar
-              </Button>
-            </div>
 
             {/* Badge de estado */}
-            <div className="hidden lg:flex items-center gap-2 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/30 dark:to-purple-900/30 px-3 py-1 rounded-full border border-blue-200 dark:border-blue-700">
-              <div className="w-2 h-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full animate-pulse"></div>
-              <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Sistema Activo</span>
-            </div>
+            {editingQuote ? (
+              <div className="flex items-center gap-2 bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/30 dark:to-orange-900/30 px-3 py-1 rounded-full border border-yellow-200 dark:border-yellow-700">
+                <div className="w-2 h-2 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-full animate-pulse"></div>
+                <span className="text-xs font-medium text-yellow-700 dark:text-yellow-300">✏️ Editando: {editingQuote.clienteName}</span>
+              </div>
+            ) : (
+              <div className="hidden lg:flex items-center gap-2 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/30 dark:to-purple-900/30 px-3 py-1 rounded-full border border-blue-200 dark:border-blue-700">
+                <div className="w-2 h-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full animate-pulse"></div>
+                <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Sistema Activo</span>
+              </div>
+            )}
           </motion.div>
         </div>
       </div>
@@ -1498,6 +1728,368 @@ const CostosTable = () => {
           </Button>
         </motion.div>
       </div>
+
+      {/* Modal para Enlace de Aprobación */}
+      <AnimatePresence>
+        {showApprovalLink && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setShowApprovalLink(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-2xl w-full p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">
+                  🔗 Enlace de Aprobación Generado
+                </h2>
+                <Button
+                  onClick={() => setShowApprovalLink(false)}
+                  variant="outline"
+                  size="sm"
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  ✕
+                </Button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-900/30 dark:to-amber-900/30 p-4 rounded-lg border border-orange-200 dark:border-orange-700">
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                    📤 Comparte este enlace con quien debe aprobar la cotización:
+                  </p>
+                  <div className="bg-white dark:bg-gray-700 p-3 rounded-lg border border-gray-200 dark:border-gray-600 break-all text-sm font-mono">
+                    {generatedLink}
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <Button
+                    onClick={copyApprovalLink}
+                    className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white flex-1"
+                  >
+                    📋 Copiar Enlace
+                  </Button>
+                  <Button
+                    onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent('🏢 Nueva cotización para aprobar:\n\n' + generatedLink)}`, '_blank')}
+                    className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white flex-1"
+                  >
+                    📱 Enviar por WhatsApp
+                  </Button>
+                </div>
+
+                <div className="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg border border-blue-200 dark:border-blue-700">
+                  <h3 className="font-semibold text-blue-800 dark:text-blue-300 mb-2">
+                    ℹ️ Instrucciones:
+                  </h3>
+                  <ul className="text-sm text-blue-700 dark:text-blue-400 space-y-1">
+                    <li>• El receptor podrá ver toda la cotización</li>
+                    <li>• Tendrá opciones para Aprobar o Denegar</li>
+                    <li>• Recibirás la respuesta por WhatsApp automáticamente</li>
+                    <li>• El enlace es seguro y contiene toda la información encriptada</li>
+                  </ul>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Vista de Aprobación */}
+      <AnimatePresence>
+        {showApprovalView && approvalQuote && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-gradient-to-br from-orange-500 to-amber-500 z-50 overflow-auto"
+          >
+            <div className="min-h-screen p-4">
+              <div className="max-w-6xl mx-auto">
+                {/* Header de Aprobación */}
+                <motion.div
+                  initial={{ y: -20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 mb-6"
+                >
+                  <div className="text-center">
+                    <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-200 mb-2">
+                      📋 REVISIÓN DE COTIZACIÓN
+                    </h1>
+                    <p className="text-gray-600 dark:text-gray-400 mb-4">
+                      Por favor revisa los detalles y decide si aprobar o denegar esta cotización
+                    </p>
+                    <div className="bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-900/30 dark:to-amber-900/30 p-4 rounded-lg border border-orange-200 dark:border-orange-700">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                        <div>
+                          <span className="text-sm text-gray-500 dark:text-gray-400">ID Cotización</span>
+                          <div className="font-bold text-lg text-orange-600 dark:text-orange-400">{approvalQuote.id}</div>
+                        </div>
+                        <div>
+                          <span className="text-sm text-gray-500 dark:text-gray-400">Cliente</span>
+                          <div className="font-bold text-lg text-gray-800 dark:text-gray-200">{approvalQuote.clienteName}</div>
+                        </div>
+                        <div>
+                          <span className="text-sm text-gray-500 dark:text-gray-400">Total</span>
+                          <div className="font-bold text-lg text-green-600 dark:text-green-400">{formatCurrency(approvalQuote.totalGeneral)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+
+                {/* Contenido de la Cotización */}
+                <motion.div
+                  initial={{ y: 20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{ delay: 0.2 }}
+                  className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 mb-6"
+                >
+                  <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-200 mb-4">
+                    📊 Detalles de la Cotización
+                  </h2>
+                  
+                  {/* Información general */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                    <div className="bg-blue-50 dark:bg-blue-900/30 p-3 rounded-lg">
+                      <span className="text-sm text-blue-600 dark:text-blue-400">📅 Fecha</span>
+                      <div className="font-semibold">{approvalQuote.dateFormatted}</div>
+                    </div>
+                    <div className="bg-purple-50 dark:bg-purple-900/30 p-3 rounded-lg">
+                      <span className="text-sm text-purple-600 dark:text-purple-400">💱 TRM Utilizada</span>
+                      <div className="font-semibold">{approvalQuote.trmGlobal.toLocaleString()}</div>
+                    </div>
+                    <div className="bg-green-50 dark:bg-green-900/30 p-3 rounded-lg">
+                      <span className="text-sm text-green-600 dark:text-green-400">💱 TRM Oficial</span>
+                      <div className="font-semibold">{approvalQuote.trmOficial ? approvalQuote.trmOficial.toLocaleString() : 'N/A'}</div>
+                    </div>
+                    <div className="bg-orange-50 dark:bg-orange-900/30 p-3 rounded-lg">
+                      <span className="text-sm text-orange-600 dark:text-orange-400">📦 Items</span>
+                      <div className="font-semibold">{approvalQuote.rows.length}</div>
+                    </div>
+                  </div>
+
+                  {/* Tabla de items */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse border border-gray-300 dark:border-gray-600">
+                      <thead>
+                        <tr className="bg-gray-50 dark:bg-gray-700">
+                          <th className="border border-gray-300 dark:border-gray-600 p-2 text-xs font-semibold">ITEM</th>
+                          <th className="border border-gray-300 dark:border-gray-600 p-2 text-xs font-semibold">CANTIDAD</th>
+                          <th className="border border-gray-300 dark:border-gray-600 p-2 text-xs font-semibold">PROVEEDOR</th>
+                          <th className="border border-gray-300 dark:border-gray-600 p-2 text-xs font-semibold">PRODUCTO</th>
+                          <th className="border border-gray-300 dark:border-gray-600 p-2 text-xs font-semibold">COSTO USD</th>
+                          <th className="border border-gray-300 dark:border-gray-600 p-2 text-xs font-semibold">COSTO COP</th>
+                          <th className="border border-gray-300 dark:border-gray-600 p-2 text-xs font-semibold">MARGEN %</th>
+                          <th className="border border-gray-300 dark:border-gray-600 p-2 text-xs font-semibold">PVP TOTAL</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {approvalQuote.rows.map((row, index) => (
+                          <tr key={index} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                            <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{row.item}</td>
+                            <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{row.cantidad}</td>
+                            <td className="border border-gray-300 dark:border-gray-600 p-2">{row.mayorista}</td>
+                            <td className="border border-gray-300 dark:border-gray-600 p-2">{row.marca} {row.referencia}</td>
+                            <td className="border border-gray-300 dark:border-gray-600 p-2 text-right">${row.costoUSD?.toLocaleString() || '0'}</td>
+                            <td className="border border-gray-300 dark:border-gray-600 p-2 text-right">{formatCurrency(row.costoCOP)}</td>
+                            <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{row.margen}%</td>
+                            <td className="border border-gray-300 dark:border-gray-600 p-2 text-right font-semibold">{formatCurrency(row.pvpTotal)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </motion.div>
+
+                {/* Botones de Aprobación */}
+                <motion.div
+                  initial={{ y: 20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{ delay: 0.4 }}
+                  className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6"
+                >
+                  <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-200 mb-4 text-center">
+                    🤔 ¿Cuál es tu decisión?
+                  </h2>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Aprobar */}
+                    <div className="space-y-4">
+                      <Button
+                        onClick={() => handleApproval(true)}
+                        className="w-full bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white text-lg py-4"
+                      >
+                        ✅ APROBAR COTIZACIÓN
+                      </Button>
+                      <div className="text-center text-sm text-gray-600 dark:text-gray-400">
+                        La cotización se aprobará y se enviará confirmación por WhatsApp
+                      </div>
+                    </div>
+
+                    {/* Denegar */}
+                    <div className="space-y-4">
+                      <Button
+                        onClick={() => {
+                          const reason = prompt('Por favor ingresa la razón para denegar esta cotización:')
+                          if (reason && reason.trim()) {
+                            handleApproval(false, reason.trim())
+                          }
+                        }}
+                        className="w-full bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white text-lg py-4"
+                      >
+                        ❌ DENEGAR COTIZACIÓN
+                      </Button>
+                      <div className="text-center text-sm text-gray-600 dark:text-gray-400">
+                        Se solicitará una razón y se enviará por WhatsApp
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Vista de Cotizaciones Guardadas */}
+      <AnimatePresence>
+        {showSavedQuotes && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="mt-8 bg-gradient-to-br from-white to-gray-50 dark:from-gray-800 dark:to-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 shadow-xl overflow-hidden"
+          >
+            {/* Header de Cotizaciones Guardadas */}
+            <div className="bg-gradient-to-r from-purple-500 to-indigo-500 p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-white mb-2">📋 Cotizaciones Guardadas</h2>
+                  <p className="text-purple-100">Gestiona tus cotizaciones guardadas: ver, editar, duplicar o eliminar</p>
+                </div>
+                <Button
+                  onClick={() => setShowSavedQuotes(false)}
+                  variant="outline"
+                  className="bg-white/20 border-white/30 text-white hover:bg-white/30"
+                  size="sm"
+                >
+                  ✕ Cerrar
+                </Button>
+              </div>
+            </div>
+
+            {/* Contenido de Cotizaciones */}
+            <div className="p-6">
+              {savedQuotes.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="text-6xl mb-4">📝</div>
+                  <h3 className="text-xl font-semibold text-gray-600 dark:text-gray-400 mb-2">
+                    No hay cotizaciones guardadas
+                  </h3>
+                  <p className="text-gray-500 dark:text-gray-500">
+                    Crea tu primera cotización y haz clic en "Guardar" para verla aquí
+                  </p>
+                </div>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {savedQuotes.map((quote) => (
+                    <motion.div
+                      key={quote.id}
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden"
+                    >
+                      {/* Header de la tarjeta */}
+                      <div className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/30 dark:to-purple-900/30 p-4 border-b border-gray-200 dark:border-gray-600">
+                        <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 truncate">
+                          👤 {quote.clienteName}
+                        </h3>
+                        <p className="text-xs text-gray-500 dark:text-gray-500 font-mono">
+                          🆔 {quote.id}
+                        </p>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                          📅 {quote.dateFormatted}
+                        </p>
+                        <p className="text-sm text-blue-600 dark:text-blue-400">
+                          💰 Total: {formatCurrency(quote.totalGeneral)}
+                        </p>
+                        {quote.status && (
+                          <div className={`inline-block px-2 py-1 rounded-full text-xs mt-2 ${
+                            quote.status === 'approved' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' :
+                            quote.status === 'denied' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' :
+                            quote.status === 'pending_approval' ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300' :
+                            'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                          }`}>
+                            {quote.status === 'approved' ? '✅ Aprobada' :
+                             quote.status === 'denied' ? '❌ Denegada' :
+                             quote.status === 'pending_approval' ? '⏳ Pendiente' :
+                             '📝 Borrador'}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Detalles de la cotización */}
+                      <div className="p-4">
+                        <div className="grid grid-cols-2 gap-2 text-sm mb-4">
+                          <div>
+                            <span className="text-gray-500 dark:text-gray-400">📦 Items:</span>
+                            <span className="ml-1 font-semibold">{quote.rows.length}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 dark:text-gray-400">💱 TRM:</span>
+                            <span className="ml-1 font-semibold">{quote.trmGlobal.toLocaleString()}</span>
+                          </div>
+                        </div>
+
+                        {/* Botones de acción */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button
+                            onClick={() => loadQuote(quote)}
+                            className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white text-xs h-8"
+                            size="sm"
+                          >
+                            ✏️ Editar
+                          </Button>
+                          <Button
+                            onClick={() => exportQuotePDF(quote)}
+                            className="bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white text-xs h-8"
+                            size="sm"
+                          >
+                            📄 PDF
+                          </Button>
+                          <Button
+                            onClick={() => duplicateQuote(quote)}
+                            className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white text-xs h-8"
+                            size="sm"
+                          >
+                            📋 Duplicar
+                          </Button>
+                          <Button
+                            onClick={() => deleteQuote(quote.id)}
+                            variant="outline"
+                            className="border-red-200 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 text-xs h-8"
+                            size="sm"
+                          >
+                            🗑️ Eliminar
+                          </Button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
