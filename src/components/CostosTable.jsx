@@ -577,18 +577,58 @@ const CostosTable = () => {
     // Componente de fila para desktop eliminado (integrado directamente en la tabla)
 
 
-  // Componente de celda móvil mejorada con bordes
-  const MobileCellWrapper = ({ label, children, className = "", colorClass = "" }) => (
+  // Componente de celda móvil mejorada con bordes - Memoizado para evitar re-renders
+  const MobileCellWrapper = React.memo(({ label, children, className = "", colorClass = "" }) => (
     <div className={`bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow ${className}`}>
       <label className={`block text-xs font-semibold mb-2 ${colorClass || 'text-gray-600 dark:text-gray-400'}`}>
         {label}
       </label>
       {children}
     </div>
-  )
+  ))
 
-  // Componente de card para móvil mejorado
-  const MobileCard = ({ row, index }) => (
+  // Componente de input móvil específico - más estable
+  const MobileEditableCell = React.memo(({ value, onChange, type = 'text', className = '' }) => {
+    const [localValue, setLocalValue] = useState(value || '')
+    const [isFocused, setIsFocused] = useState(false)
+    
+    // Actualizar valor local solo si no está enfocado
+    useEffect(() => {
+      if (!isFocused && value !== localValue) {
+        setLocalValue(value || '')
+      }
+    }, [value, isFocused, localValue])
+    
+    const handleFocus = () => {
+      setIsFocused(true)
+    }
+    
+    const handleBlur = () => {
+      setIsFocused(false)
+      if (onChange && localValue !== value) {
+        onChange(localValue)
+      }
+    }
+    
+    const handleChange = (e) => {
+      setLocalValue(e.target.value)
+    }
+    
+    return (
+      <input
+        type={type}
+        value={localValue}
+        onChange={handleChange}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        autoComplete="off"
+        className={`w-full h-9 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 ${className}`}
+      />
+    )
+  })
+
+  // Componente de card para móvil mejorado - Memoizado
+  const MobileCard = React.memo(({ row, index }) => (
     <motion.div
       key={row.id}
       initial={{ opacity: 0, y: 20 }}
@@ -626,7 +666,7 @@ const CostosTable = () => {
                 </div>
               </MobileCellWrapper>
               <MobileCellWrapper label="CANTIDAD" colorClass="text-green-600 dark:text-green-400">
-                <EditableCell 
+                <MobileEditableCell 
                   type="number"
                   value={row.cantidad}
                   onChange={(value) => updateRow(row.id, 'cantidad', Math.max(1, parseNumber(value)))}
@@ -643,7 +683,7 @@ const CostosTable = () => {
             </h4>
             <div className="space-y-3">
               <MobileCellWrapper label="MAYORISTA" colorClass="text-purple-600 dark:text-purple-400">
-                <EditableCell 
+                <MobileEditableCell 
                   value={row.mayorista}
                   onChange={(value) => updateRow(row.id, 'mayorista', value)}
                   className="font-medium"
@@ -652,13 +692,13 @@ const CostosTable = () => {
               
               <div className="grid grid-cols-2 gap-3">
                 <MobileCellWrapper label="MARCA" colorClass="text-purple-600 dark:text-purple-400">
-                  <EditableCell 
+                  <MobileEditableCell 
                     value={row.marca}
                     onChange={(value) => updateRow(row.id, 'marca', value)}
                   />
                 </MobileCellWrapper>
                 <MobileCellWrapper label="REFERENCIA" colorClass="text-purple-600 dark:text-purple-400">
-                  <EditableCell 
+                  <MobileEditableCell 
                     value={row.referencia}
                     onChange={(value) => updateRow(row.id, 'referencia', value)}
                   />
@@ -666,7 +706,7 @@ const CostosTable = () => {
               </div>
               
               <MobileCellWrapper label="CONFIGURACIÓN" colorClass="text-purple-600 dark:text-purple-400">
-                <EditableCell 
+                <MobileEditableCell 
                   value={row.configuracion}
                   onChange={(value) => updateRow(row.id, 'configuracion', value)}
                 />
@@ -682,7 +722,7 @@ const CostosTable = () => {
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <MobileCellWrapper label="COSTO USD" colorClass="text-blue-600 dark:text-blue-400">
-                  <EditableCell 
+                  <MobileEditableCell 
                     type="number"
                     value={row.costoUSD}
                     onChange={(value) => updateRow(row.id, 'costoUSD', Math.max(0, parseNumber(value)))}
@@ -690,7 +730,7 @@ const CostosTable = () => {
                   />
                 </MobileCellWrapper>
                 <MobileCellWrapper label="TRM" colorClass="text-orange-600 dark:text-orange-400">
-                  <EditableCell 
+                  <MobileEditableCell 
                     type="number"
                     value={row.trm}
                     onChange={(value) => updateRow(row.id, 'trm', Math.max(0, parseNumber(value)))}
@@ -700,14 +740,17 @@ const CostosTable = () => {
               </div>
               
               <MobileCellWrapper label="COSTO COP" className="bg-purple-50 dark:bg-purple-900/20 border-purple-300 dark:border-purple-600" colorClass="text-purple-700 dark:text-purple-300">
-                <div className="text-center text-lg font-bold text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-900/50 py-3 rounded border border-purple-200 dark:border-purple-600">
-                  {formatCurrency(row.costoCOP)}
-                </div>
+                <MobileEditableCell 
+                  type="number"
+                  value={row.costoCOP}
+                  onChange={(value) => updateRow(row.id, 'costoCOP', Math.max(0, parseNumber(value)))}
+                  className="text-center text-lg font-bold text-purple-600 dark:text-purple-400"
+                />
               </MobileCellWrapper>
               
               <div className="grid grid-cols-2 gap-3">
                 <MobileCellWrapper label="IVA COSTO (%)" colorClass="text-red-600 dark:text-red-400">
-                  <EditableCell 
+                  <MobileEditableCell 
                     type="number"
                     value={row.ivaPercentCosto}
                     onChange={(value) => updateRow(row.id, 'ivaPercentCosto', Math.max(0, parseNumber(value)))}
@@ -736,7 +779,7 @@ const CostosTable = () => {
             </h4>
             <div className="space-y-3">
               <MobileCellWrapper label="MARGEN (%)" colorClass="text-green-600 dark:text-green-400">
-                <EditableCell 
+                <MobileEditableCell 
                   type="number"
                   value={row.margen}
                   onChange={(value) => updateRow(row.id, 'margen', Math.max(0, parseNumber(value)))}
@@ -752,7 +795,7 @@ const CostosTable = () => {
               
               <div className="grid grid-cols-2 gap-3">
                 <MobileCellWrapper label="IVA PVP (%)" colorClass="text-blue-600 dark:text-blue-400">
-                  <EditableCell 
+                  <MobileEditableCell 
                     type="number"
                     value={row.ivaPercentPVP}
                     onChange={(value) => updateRow(row.id, 'ivaPercentPVP', Math.max(0, parseNumber(value)))}
@@ -783,7 +826,7 @@ const CostosTable = () => {
         </CardContent>
       </Card>
     </motion.div>
-  )
+  ))
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
