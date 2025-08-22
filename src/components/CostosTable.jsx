@@ -130,6 +130,9 @@ const CostosTable = () => {
   const [clienteName, setClienteName] = useState('')
   const [savedQuotes, setSavedQuotes] = useState([])
   const [saveSuccess, setSaveSuccess] = useState(false)
+  
+  // Estado para controlar items colapsados en móvil
+  const [collapsedItems, setCollapsedItems] = useState(new Set())
 
   // Función para obtener TRM oficial de datos.gov.co (GOBIERNO COLOMBIANO)
   const fetchOficialTRM = async () => {
@@ -178,17 +181,27 @@ const CostosTable = () => {
   // Funciones para localStorage
   const loadSavedQuotes = () => {
     try {
+      console.log('🔍 Intentando cargar cotizaciones del localStorage...')
       const saved = localStorage.getItem('costos-quotes')
+      console.log('📦 Datos en localStorage:', saved)
       if (saved) {
-        setSavedQuotes(JSON.parse(saved))
+        const parsed = JSON.parse(saved)
+        console.log('✅ Cotizaciones cargadas:', parsed)
+        setSavedQuotes(parsed)
+      } else {
+        console.log('ℹ️ No hay cotizaciones guardadas')
       }
     } catch (error) {
-      console.error('Error cargando cotizaciones:', error)
+      console.error('❌ Error cargando cotizaciones:', error)
     }
   }
 
   const saveQuote = () => {
+    console.log('💾 Iniciando proceso de guardado...')
+    console.log('👤 Cliente actual:', clienteName)
+    
     if (!clienteName.trim()) {
+      console.log('❌ Error: Cliente vacío')
       alert('Por favor ingresa el nombre del cliente')
       return
     }
@@ -203,19 +216,48 @@ const CostosTable = () => {
       dateFormatted: new Date().toLocaleString('es-CO')
     }
 
+    console.log('📋 Cotización a guardar:', quote)
+    console.log('📊 Cotizaciones existentes:', savedQuotes)
+
     try {
       const updated = [...savedQuotes, quote]
+      console.log('📦 Cotizaciones actualizadas:', updated)
+      
       localStorage.setItem('costos-quotes', JSON.stringify(updated))
+      console.log('✅ Guardado en localStorage exitoso')
+      
       setSavedQuotes(updated)
       setSaveSuccess(true)
+      
+      // Verificar que se guardó correctamente
+      const verification = localStorage.getItem('costos-quotes')
+      console.log('🔍 Verificación de guardado:', verification ? 'ÉXITO' : 'FALLÓ')
       
       // Ocultar mensaje de éxito después de 2 segundos
       setTimeout(() => setSaveSuccess(false), 2000)
       
-      console.log('✅ Cotización guardada:', quote)
+      console.log('✅ Cotización guardada completamente:', quote)
     } catch (error) {
-      console.error('Error guardando cotización:', error)
+      console.error('❌ Error guardando cotización:', error)
       alert('Error al guardar la cotización')
+    }
+  }
+
+  // Funciones de debugging para localStorage
+  const debugLocalStorage = () => {
+    console.log('🔍 DEBUG LOCALSTORAGE:')
+    console.log('📊 savedQuotes state:', savedQuotes)
+    console.log('👤 clienteName state:', clienteName)
+    console.log('📦 localStorage directo:', localStorage.getItem('costos-quotes'))
+    console.log('🌐 localStorage disponible:', typeof Storage !== "undefined")
+    console.log('📝 Todas las keys en localStorage:', Object.keys(localStorage))
+  }
+
+  const clearLocalStorage = () => {
+    if (confirm('¿Estás seguro de que quieres limpiar todas las cotizaciones guardadas?')) {
+      localStorage.removeItem('costos-quotes')
+      setSavedQuotes([])
+      console.log('🗑️ localStorage limpiado')
     }
   }
 
@@ -504,13 +546,47 @@ const CostosTable = () => {
       pvpTotal: 0
     }
     setRows(prev => [...prev, calculateRow(newRow)])
+    
+    // En móvil, colapsar todos los items anteriores cuando se añade uno nuevo
+    if (window.innerWidth < 1024) { // lg breakpoint
+      const allCurrentIds = new Set(rows.map(row => row.id))
+      setCollapsedItems(allCurrentIds)
+    }
   }
 
   // Eliminar fila
   const removeRow = (id) => {
     if (rows.length > 1) {
       setRows(prev => prev.filter(row => row.id !== id))
+      // Remover del set de colapsados si existe
+      setCollapsedItems(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(id)
+        return newSet
+      })
     }
+  }
+
+  // Funciones para manejar colapso de items en móvil
+  const toggleItemCollapse = (id) => {
+    setCollapsedItems(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(id)) {
+        newSet.delete(id)
+      } else {
+        newSet.add(id)
+      }
+      return newSet
+    })
+  }
+
+  const expandAllItems = () => {
+    setCollapsedItems(new Set())
+  }
+
+  const collapseAllItems = () => {
+    const allIds = new Set(rows.map(row => row.id))
+    setCollapsedItems(allIds)
   }
 
   // Calcular totales
@@ -627,6 +703,45 @@ const CostosTable = () => {
     )
   })
 
+  // Componente de card colapsado para móvil
+  const CollapsedMobileCard = React.memo(({ row, index, onExpand }) => (
+    <motion.div
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: 'auto' }}
+      exit={{ opacity: 0, height: 0 }}
+      className="mb-3"
+    >
+      <div 
+        onClick={onExpand}
+        className="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg p-4 shadow-sm cursor-pointer hover:shadow-md transition-all duration-200"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold">
+              {row.item}
+            </div>
+            <div>
+              <div className="font-semibold text-gray-800 dark:text-gray-200">
+                {row.mayorista || `Item #${index + 1}`}
+              </div>
+              <div className="text-sm text-gray-600 dark:text-gray-400">
+                {row.marca} {row.referencia}
+              </div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-lg font-bold text-green-600 dark:text-green-400">
+              {formatCurrency(row.pvpTotal)}
+            </div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">
+              Toca para expandir
+            </div>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  ))
+
   // Componente de card para móvil mejorado - Memoizado
   const MobileCard = React.memo(({ row, index }) => (
     <motion.div
@@ -643,15 +758,29 @@ const CostosTable = () => {
             <h3 className="font-bold text-xl text-blue-700 dark:text-blue-300">
               Item #{index + 1}
             </h3>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => removeRow(row.id)}
-              className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-full"
-              disabled={rows.length === 1}
-            >
-              <X className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-2">
+              {/* Botón colapsar - solo visible en móvil */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => toggleItemCollapse(row.id)}
+                className="h-8 w-8 text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-900/20 border border-gray-200 dark:border-gray-700 rounded-full lg:hidden"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </Button>
+              {/* Botón eliminar */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => removeRow(row.id)}
+                className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-full"
+                disabled={rows.length === 1}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
           
           {/* Sección 1: Identificación */}
@@ -1033,6 +1162,26 @@ const CostosTable = () => {
             {/* Espaciador */}
             <div className="flex-1 hidden lg:block"></div>
             
+            {/* Botones de debugging (temporales) */}
+            <div className="flex items-center gap-2">
+              <Button 
+                onClick={debugLocalStorage}
+                variant="outline" 
+                size="sm"
+                className="bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-700 text-yellow-700 dark:text-yellow-300 text-xs"
+              >
+                🔍 Debug
+              </Button>
+              <Button 
+                onClick={clearLocalStorage}
+                variant="outline" 
+                size="sm"
+                className="bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-700 text-red-700 dark:text-red-300 text-xs"
+              >
+                🗑️ Limpiar
+              </Button>
+            </div>
+
             {/* Badge de estado */}
             <div className="hidden lg:flex items-center gap-2 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/30 dark:to-purple-900/30 px-3 py-1 rounded-full border border-blue-200 dark:border-blue-700">
               <div className="w-2 h-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full animate-pulse"></div>
@@ -1251,12 +1400,49 @@ const CostosTable = () => {
                 </div>
 
 
-            {/* Cards Mobile */}
+            {/* Cards Mobile con colapso */}
             <div className="lg:hidden">
+              {/* Botones de control de colapso */}
+              {rows.length > 1 && (
+                <div className="mb-4 flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={expandAllItems}
+                    className="text-xs"
+                  >
+                    Expandir Todo
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={collapseAllItems}
+                    className="text-xs"
+                  >
+                    Colapsar Todo
+                  </Button>
+                </div>
+              )}
+              
               <AnimatePresence>
-                {rows.map((row, index) => (
-                  <MobileCard key={row.id} row={row} index={index} />
-                ))}
+                {rows.map((row, index) => {
+                  const isCollapsed = collapsedItems.has(row.id)
+                  
+                  if (isCollapsed) {
+                    return (
+                      <CollapsedMobileCard 
+                        key={`collapsed-${row.id}`}
+                        row={row} 
+                        index={index}
+                        onExpand={() => toggleItemCollapse(row.id)}
+                      />
+                    )
+                  }
+                  
+                  return (
+                    <MobileCard key={row.id} row={row} index={index} />
+                  )
+                })}
               </AnimatePresence>
               
               {/* Resumen Mobile */}
