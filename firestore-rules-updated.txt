@@ -1,0 +1,91 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Reglas para la colección de cotizaciones
+    match /cotizaciones/{cotizacionId} {
+      // LECTURA: Permitir si:
+      // - Es de TECNOPHONE (siempre)
+      // - O el usuario está autenticado y es el creador
+      allow read: if resource.data.companyId == 'TECNOPHONE' ||
+        (request.auth != null && 
+         (resource.data.createdBy == request.auth.uid || 
+          resource.data.userEmail == request.auth.token.email));
+      
+      // CREACIÓN: Permitir si:
+      // - Es de TECNOPHONE Y
+      // - (Usuario autenticado con datos correctos O es anónimo para aprobaciones)
+      allow create: if request.resource.data.companyId == 'TECNOPHONE' &&
+        (
+          // Usuario autenticado normal
+          (request.auth != null && 
+           request.resource.data.createdBy == request.auth.uid &&
+           request.resource.data.userEmail == request.auth.token.email) ||
+          
+          // Usuario anónimo para aprobaciones (sin auth)
+          (request.auth == null && 
+           request.resource.data.createdBy == 'anonymous')
+        );
+      
+      // ACTUALIZACIÓN: Permitir si:
+      // - Es de TECNOPHONE Y
+      // - (Es el creador autenticado O es actualización de aprobación)
+      allow update: if resource.data.companyId == 'TECNOPHONE' &&
+        (
+          // Usuario autenticado que es el creador
+          (request.auth != null && 
+           (resource.data.createdBy == request.auth.uid ||
+            resource.data.userEmail == request.auth.token.email)) ||
+          
+          // Actualización de aprobación (cambios de status)
+          (request.auth == null && 
+           resource.data.companyId == 'TECNOPHONE' &&
+           (request.resource.data.status in ['approved', 'revision_requested', 'denied']))
+        );
+      
+      // ELIMINACIÓN: Solo creadores autenticados
+      allow delete: if request.auth != null && 
+        resource.data.createdBy == request.auth.uid;
+    }
+    
+    // Reglas para la colección de usuarios
+    match /users/{userId} {
+      // Permitir lectura/escritura solo si es el propio usuario
+      allow read, write: if request.auth != null && 
+        resource.data.uid == request.auth.uid;
+    }
+    
+    // Reglas para la colección de proveedores
+    match /providers/{providerId} {
+      // LECTURA: Permitir si es de TECNOPHONE
+      allow read: if resource.data.companyId == 'TECNOPHONE';
+      
+      // CREACIÓN: Solo usuarios autenticados de TECNOPHONE
+      allow create: if request.auth != null && 
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.userEmail == request.auth.token.email &&
+        request.resource.data.companyId == 'TECNOPHONE';
+      
+      // ACTUALIZACIÓN: Solo creadores autenticados
+      allow update: if request.auth != null && 
+        (resource.data.createdBy == request.auth.uid ||
+         resource.data.userEmail == request.auth.token.email);
+      
+      // ELIMINACIÓN: Solo creadores autenticados
+      allow delete: if request.auth != null && 
+        resource.data.createdBy == request.auth.uid;
+    }
+    
+    // Reglas para colecciones de prueba y conectividad
+    match /connectivity-tests/{testId} {
+      // Permitir operaciones de prueba
+      allow read, write: if true;
+    }
+    
+    // Reglas para otras colecciones futuras
+    match /{document=**} {
+      // Por defecto, solo usuarios autenticados de TECNOPHONE
+      allow read, write: if request.auth != null;
+    }
+  }
+}

@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Firebase Sync - TECNOPHONE</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
+        .test-item { margin: 10px 0; padding: 10px; border-radius: 5px; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        .warning { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+        button { padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-warning { background: #ffc107; color: black; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔥 Firebase Sync Debug - TECNOPHONE</h1>
+        
+        <div id="status" class="test-item info">
+            <strong>Estado:</strong> Iniciando diagnóstico...
+        </div>
+
+        <div class="test-item">
+            <button class="btn-primary" onclick="runFullDiagnostic()">🧪 Diagnóstico Completo</button>
+            <button class="btn-success" onclick="testAuth()">🔐 Probar Auth</button>
+            <button class="btn-success" onclick="testFirestoreRules()">📋 Probar Reglas</button>
+            <button class="btn-success" onclick="testCRUDOperations()">💾 Probar CRUD</button>
+            <button class="btn-warning" onclick="clearFirestoreData()">🗑️ Limpiar Datos</button>
+            <button class="btn-danger" onclick="clearResults()">🧹 Limpiar Log</button>
+        </div>
+
+        <div id="results"></div>
+    </div>
+
+    <script type="module">
+        // Import Firebase modules
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js'
+        import { 
+            getFirestore, 
+            collection, 
+            addDoc, 
+            getDocs, 
+            query, 
+            where, 
+            orderBy,
+            updateDoc,
+            deleteDoc,
+            doc,
+            enableIndexedDbPersistence
+        } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js'
+        import {
+            getAuth,
+            signInWithEmailAndPassword,
+            signOut,
+            onAuthStateChanged
+        } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js'
+
+        // Firebase config
+        const firebaseConfig = {
+            apiKey: "AIzaSyDg6Mwzw9aLxsxDqxZyqTNdXAbZWudtz0A",
+            authDomain: "cotizador-ebd54.firebaseapp.com",
+            projectId: "cotizador-ebd54",
+            storageBucket: "cotizador-ebd54.firebasestorage.app",
+            messagingSenderId: "627582491863",
+            appId: "1:627582491863:web:3bbd09e9850e69f1eae492"
+        }
+
+        let app, db, auth
+        let testResults = []
+
+        // Initialize Firebase
+        try {
+            app = initializeApp(firebaseConfig)
+            db = getFirestore(app)
+            auth = getAuth(app)
+            addResult('✅ Firebase inicializado correctamente', 'success')
+        } catch (error) {
+            addResult('❌ Error inicializando Firebase: ' + error.message, 'error')
+        }
+
+        // Helper functions
+        function addResult(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString()
+            testResults.push({ message, type, timestamp })
+            updateResultsDisplay()
+        }
+
+        function updateResultsDisplay() {
+            const resultsDiv = document.getElementById('results')
+            resultsDiv.innerHTML = testResults.map(result => 
+                `<div class="test-item ${result.type}">
+                    <strong>[${result.timestamp}]</strong> ${result.message}
+                </div>`
+            ).join('')
+            resultsDiv.scrollTop = resultsDiv.scrollHeight
+        }
+
+        function updateStatus(message) {
+            document.getElementById('status').innerHTML = `<strong>Estado:</strong> ${message}`
+        }
+
+        // Test functions
+        window.testAuth = async function() {
+            updateStatus('Probando autenticación...')
+            
+            try {
+                const currentUser = auth.currentUser
+                if (currentUser) {
+                    addResult(`✅ Usuario autenticado: ${currentUser.email}`, 'success')
+                    addResult(`👤 UID: ${currentUser.uid}`, 'info')
+                    addResult(`📧 Email verificado: ${currentUser.emailVerified ? 'Sí' : 'No'}`, 
+                        currentUser.emailVerified ? 'success' : 'warning')
+                } else {
+                    addResult('⚠️ No hay usuario autenticado', 'warning')
+                    
+                    // Intentar login de prueba (opcional)
+                    addResult('💡 Para probar completamente, puedes hacer login manualmente', 'info')
+                }
+                
+                updateStatus('Autenticación probada')
+                
+            } catch (error) {
+                addResult('❌ Error probando autenticación: ' + error.message, 'error')
+                updateStatus('Error en prueba de autenticación')
+            }
+        }
+
+        window.testFirestoreRules = async function() {
+            updateStatus('Probando reglas de Firestore...')
+            
+            try {
+                const currentUser = auth.currentUser
+                
+                // Test 1: Lectura sin autenticación (debería funcionar para TECNOPHONE)
+                addResult('📖 Test 1: Lectura sin autenticación...', 'info')
+                try {
+                    const cotizacionesRef = collection(db, 'cotizaciones')
+                    const q = query(
+                        cotizacionesRef,
+                        where('companyId', '==', 'TECNOPHONE')
+                    )
+                    const snapshot = await getDocs(q)
+                    addResult(`✅ Lectura sin auth: ${snapshot.size} documentos encontrados`, 'success')
+                } catch (error) {
+                    addResult(`❌ Lectura sin auth falló: ${error.code} - ${error.message}`, 'error')
+                }
+
+                // Test 2: Escritura sin autenticación (para aprobaciones)
+                addResult('✍️ Test 2: Escritura sin autenticación...', 'info')
+                try {
+                    const testDoc = {
+                        companyId: 'TECNOPHONE',
+                        createdBy: 'anonymous',
+                        userEmail: null,
+                        status: 'test',
+                        cotizacion_id: 'TEST-' + Date.now(),
+                        clienteName: 'Test Cliente',
+                        date: new Date().toISOString(),
+                        rows: [],
+                        totalGeneral: 0
+                    }
+                    
+                    const docRef = await addDoc(collection(db, 'cotizaciones'), testDoc)
+                    addResult(`✅ Escritura sin auth: Documento creado ${docRef.id}`, 'success')
+                    
+                    // Limpiar documento de prueba
+                    await deleteDoc(docRef)
+                    addResult(`🗑️ Documento de prueba eliminado`, 'info')
+                    
+                } catch (error) {
+                    addResult(`❌ Escritura sin auth falló: ${error.code} - ${error.message}`, 'error')
+                }
+
+                // Test 3: Con autenticación (si hay usuario)
+                if (currentUser) {
+                    addResult('🔐 Test 3: Operaciones con autenticación...', 'info')
+                    try {
+                        const testDoc = {
+                            companyId: 'TECNOPHONE',
+                            createdBy: currentUser.uid,
+                            userEmail: currentUser.email,
+                            status: 'test',
+                            cotizacion_id: 'TEST-AUTH-' + Date.now(),
+                            clienteName: 'Test Cliente Auth',
+                            date: new Date().toISOString(),
+                            rows: [],
+                            totalGeneral: 0
+                        }
+                        
+                        const docRef = await addDoc(collection(db, 'cotizaciones'), testDoc)
+                        addResult(`✅ Escritura con auth: Documento creado ${docRef.id}`, 'success')
+                        
+                        // Limpiar documento de prueba
+                        await deleteDoc(docRef)
+                        addResult(`🗑️ Documento de prueba eliminado`, 'info')
+                        
+                    } catch (error) {
+                        addResult(`❌ Escritura con auth falló: ${error.code} - ${error.message}`, 'error')
+                    }
+                }
+                
+                updateStatus('Reglas de Firestore probadas')
+                
+            } catch (error) {
+                addResult('❌ Error probando reglas: ' + error.message, 'error')
+                updateStatus('Error en prueba de reglas')
+            }
+        }
+
+        window.testCRUDOperations = async function() {
+            updateStatus('Probando operaciones CRUD...')
+            
+            try {
+                const currentUser = auth.currentUser
+                
+                // Crear documento de prueba
+                const testDoc = {
+                    companyId: 'TECNOPHONE',
+                    createdBy: currentUser?.uid || 'anonymous',
+                    userEmail: currentUser?.email || null,
+                    userName: currentUser?.displayName || null,
+                    status: 'draft',
+                    cotizacion_id: 'TEST-CRUD-' + Date.now(),
+                    clienteName: 'Cliente CRUD Test',
+                    date: new Date().toISOString(),
+                    rows: [
+                        {
+                            id: 1,
+                            item: 1,
+                            cantidad: 1,
+                            mayorista: 'Test Provider',
+                            marca: 'Test Brand',
+                            referencia: 'TEST-001',
+                            configuracion: 'Test Config',
+                            costoUSD: 100,
+                            pvpTotal: 150
+                        }
+                    ],
+                    totalGeneral: 150
+                }
+                
+                addResult('📝 Creando documento de prueba...', 'info')
+                const docRef = await addDoc(collection(db, 'cotizaciones'), testDoc)
+                addResult(`✅ Documento creado: ${docRef.id}`, 'success')
+                
+                // Leer documento
+                addResult('📖 Leyendo documento...', 'info')
+                const cotizacionesRef = collection(db, 'cotizaciones')
+                const q = query(
+                    cotizacionesRef,
+                    where('cotizacion_id', '==', testDoc.cotizacion_id)
+                )
+                const snapshot = await getDocs(q)
+                
+                if (!snapshot.empty) {
+                    const doc = snapshot.docs[0]
+                    addResult(`✅ Documento leído: ${doc.data().clienteName}`, 'success')
+                    
+                    // Actualizar documento
+                    addResult('📝 Actualizando documento...', 'info')
+                    await updateDoc(doc.ref, {
+                        status: 'updated',
+                        totalGeneral: 200
+                    })
+                    addResult(`✅ Documento actualizado`, 'success')
+                    
+                    // Eliminar documento
+                    addResult('🗑️ Eliminando documento...', 'info')
+                    await deleteDoc(doc.ref)
+                    addResult(`✅ Documento eliminado`, 'success')
+                    
+                } else {
+                    addResult('❌ No se pudo leer el documento creado', 'error')
+                }
+                
+                updateStatus('Operaciones CRUD completadas')
+                
+            } catch (error) {
+                addResult('❌ Error en operaciones CRUD: ' + error.message, 'error')
+                addResult('❌ Código de error: ' + error.code, 'error')
+                updateStatus('Error en operaciones CRUD')
+            }
+        }
+
+        window.clearFirestoreData = async function() {
+            if (!confirm('¿Estás seguro de que quieres eliminar todos los datos de prueba?')) {
+                return
+            }
+            
+            updateStatus('Limpiando datos de prueba...')
+            
+            try {
+                const cotizacionesRef = collection(db, 'cotizaciones')
+                const q = query(
+                    cotizacionesRef,
+                    where('status', '==', 'test')
+                )
+                const snapshot = await getDocs(q)
+                
+                let deleted = 0
+                for (const doc of snapshot.docs) {
+                    await deleteDoc(doc.ref)
+                    deleted++
+                }
+                
+                addResult(`🗑️ ${deleted} documentos de prueba eliminados`, 'success')
+                updateStatus('Datos de prueba limpiados')
+                
+            } catch (error) {
+                addResult('❌ Error limpiando datos: ' + error.message, 'error')
+                updateStatus('Error limpiando datos')
+            }
+        }
+
+        window.runFullDiagnostic = async function() {
+            clearResults()
+            updateStatus('Ejecutando diagnóstico completo...')
+            
+            await testAuth()
+            await new Promise(resolve => setTimeout(resolve, 1000))
+            
+            await testFirestoreRules()
+            await new Promise(resolve => setTimeout(resolve, 1000))
+            
+            await testCRUDOperations()
+            
+            updateStatus('Diagnóstico completo terminado')
+            
+            // Summary
+            const successCount = testResults.filter(r => r.type === 'success').length
+            const errorCount = testResults.filter(r => r.type === 'error').length
+            const warningCount = testResults.filter(r => r.type === 'warning').length
+            
+            addResult(`📊 RESUMEN FINAL: ✅ ${successCount} éxitos, ❌ ${errorCount} errores, ⚠️ ${warningCount} advertencias`, 
+                errorCount > 0 ? 'error' : successCount > 0 ? 'success' : 'warning')
+        }
+
+        window.clearResults = function() {
+            testResults = []
+            updateResultsDisplay()
+            updateStatus('Listo para ejecutar diagnóstico')
+        }
+
+        // Auto-run auth test on load
+        setTimeout(() => {
+            testAuth()
+        }, 1000)
+    </script>
+</body>
+</html>

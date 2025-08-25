@@ -39,6 +39,15 @@ export class HybridDatabase {
         lastSyncAttempt: new Date().toISOString()
       }
 
+      // Debug: Log de datos que se van a enviar
+      console.log('🔍 [Debug] Datos de cotización preparados:', {
+        companyId: cotizacionData.companyId,
+        createdBy: cotizacionData.createdBy,
+        userEmail: cotizacionData.userEmail,
+        isAuthenticated: !!currentUser,
+        cotizacion_id: cotizacionData.cotizacion_id
+      })
+
       // SIEMPRE guardar en IndexedDB primero (funciona offline)
       const localId = await cotizacionesDB.create(cotizacionData)
       console.log('✅ [Híbrido] Guardado en IndexedDB:', localId)
@@ -46,6 +55,7 @@ export class HybridDatabase {
       // Si estamos online, intentar sincronizar con Firebase
       if (this.isOnline) {
         try {
+          console.log('🌐 [Híbrido] Intentando sincronizar con Firebase...')
           const firebaseId = await firebaseQuotesService.create({
             ...cotizacionData,
             localId: localId // Referencia cruzada
@@ -60,13 +70,18 @@ export class HybridDatabase {
           
           console.log('🔥 [Híbrido] Sincronizado con Firebase:', firebaseId)
         } catch (firebaseError) {
-          console.warn('⚠️ [Híbrido] Error sincronizando con Firebase:', firebaseError)
+          console.error('❌ [Híbrido] Error sincronizando con Firebase:', firebaseError)
+          console.error('❌ [Híbrido] Código de error:', firebaseError.code)
+          console.error('❌ [Híbrido] Mensaje de error:', firebaseError.message)
+          
           // Marcar como pendiente de sincronización
           await cotizacionesDB.update(localId, { 
             syncStatus: 'pending',
             syncError: firebaseError.message 
           })
         }
+      } else {
+        console.log('📱 [Híbrido] Offline - cotización guardada solo localmente')
       }
 
       return localId
@@ -156,8 +171,19 @@ export class HybridDatabase {
       if (this.isOnline && updated) {
         try {
           const quote = await cotizacionesDB.getById(id)
+          console.log('🔍 [Debug] Cotización para actualizar:', {
+            id: id,
+            firebaseId: quote?.firebaseId,
+            hasFirebaseId: !!quote?.firebaseId,
+            companyId: quote?.companyId
+          })
+          
           if (quote?.firebaseId) {
-            await firebaseQuotesService.update(quote.firebaseId, changes)
+            console.log('🌐 [Híbrido] Actualizando en Firebase...')
+            await firebaseQuotesService.update(quote.firebaseId, {
+              ...changes,
+              companyId: 'TECNOPHONE' // Asegurar que siempre tenga companyId
+            })
             
             // Marcar como sincronizado
             await cotizacionesDB.update(id, { 
@@ -166,9 +192,14 @@ export class HybridDatabase {
             })
             
             console.log('🔥 [Híbrido] Actualizado en Firebase')
+          } else {
+            console.log('⚠️ [Híbrido] No hay firebaseId, saltando actualización en Firebase')
           }
         } catch (firebaseError) {
-          console.warn('⚠️ [Híbrido] Error actualizando en Firebase:', firebaseError)
+          console.error('❌ [Híbrido] Error actualizando en Firebase:', firebaseError)
+          console.error('❌ [Híbrido] Código de error:', firebaseError.code)
+          console.error('❌ [Híbrido] Mensaje de error:', firebaseError.message)
+          
           await cotizacionesDB.update(id, { 
             syncStatus: 'pending',
             syncError: firebaseError.message 
