@@ -13,6 +13,8 @@
     "@radix-ui/react-slot": "^1.2.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "dexie": "^4.2.0",
+    "firebase": "^12.1.0",
     "framer-motion": "^12.23.12",
     "jspdf": "^2.5.1",
     "jspdf-autotable": "^3.5.31",

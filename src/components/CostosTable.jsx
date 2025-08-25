@@ -56,11 +56,34 @@ const openWhatsApp = (message, phone = '') => {
 }
 import { Card, CardContent } from './ui/card'
 import { useTheme } from '../hooks/useTheme.jsx'
+import { useCotizaciones } from '../hooks/useCotizaciones.jsx'
+import { useAuth } from '../contexts/AuthContext.jsx'
+import SavedQuotesModal from './SavedQuotesModal.jsx'
+import ProvidersModal from './ProvidersModal.jsx'
+import ProviderAutocomplete from './ProviderAutocomplete.jsx'
 import { formatCurrency, formatPercentage, parseNumber, cn } from '../lib/utils'
 import jsPDF from 'jspdf'
 
 const CostosTable = () => {
   const { theme, setTheme } = useTheme()
+  
+  // Hook de autenticación
+  const { userInfo, logout } = useAuth()
+  
+  // Hook para manejar cotizaciones con Dexie + Firebase
+  const {
+    cotizaciones: savedQuotes,
+    loading: dbLoading,
+    error: dbError,
+    syncStats,
+    isOnline,
+    saveCotizacion,
+    deleteCotizacion,
+    duplicateCotizacion,
+    getCotizacionById,
+    refreshCotizaciones,
+    forceSync
+  } = useCotizaciones()
   
   const [rows, setRows] = useState([
     {
@@ -179,15 +202,18 @@ const CostosTable = () => {
 
   // Estados para cliente y guardado
   const [clienteName, setClienteName] = useState('')
-  const [savedQuotes, setSavedQuotes] = useState([])
   const [saveSuccess, setSaveSuccess] = useState(false)
   
   // Estado para controlar items colapsados en móvil
   const [collapsedItems, setCollapsedItems] = useState(new Set())
   
   // Estados para gestión de cotizaciones guardadas
-  const [showSavedQuotes, setShowSavedQuotes] = useState(false)
+  const [showSavedQuotes, setShowSavedQuotes] = useState(false) // Mantener para compatibilidad
+  const [showQuotesModal, setShowQuotesModal] = useState(false) // Nuevo modal
   const [editingQuote, setEditingQuote] = useState(null)
+  
+  // Estados para gestión de proveedores
+  const [showProvidersModal, setShowProvidersModal] = useState(false)
   
   // Estados para sistema de aprobación
   const [showApprovalLink, setShowApprovalLink] = useState(false)
@@ -236,45 +262,54 @@ const CostosTable = () => {
   // Cargar TRM oficial al montar el componente
   useEffect(() => {
     fetchOficialTRM()
-    loadSavedQuotes()
     
     // Verificar si hay un enlace de aprobación en la URL
     const urlParams = new URLSearchParams(window.location.search)
-    const approvalData = urlParams.get('approval')
+    const approvalData = urlParams.get('approval') // Método antiguo (Base64)
+    const approvalId = urlParams.get('approval_id') // Método nuevo (ID de BD)
     
-    if (approvalData) {
+    if (approvalId) {
+      // Método nuevo: Cargar desde base de datos
+      loadQuoteForApproval(approvalId)
+    } else if (approvalData) {
+      // Método antiguo: Decodificar desde URL (para compatibilidad)
       const decodedQuote = decodeQuoteFromBase64(approvalData)
       if (decodedQuote) {
         setApprovalQuote(decodedQuote)
         setShowApprovalView(true)
-        console.log('📋 Cotización para aprobación cargada:', decodedQuote)
+        console.log('📋 Cotización para aprobación cargada (método antiguo):', decodedQuote)
       } else {
         alert('Error: El enlace de aprobación no es válido')
       }
     }
   }, [])
 
-  // Funciones para localStorage
-  const loadSavedQuotes = () => {
+  // Función para cargar cotización desde BD para aprobación
+  const loadQuoteForApproval = async (cotizacionId) => {
     try {
-      console.log('🔍 Intentando cargar cotizaciones del localStorage...')
-      const saved = localStorage.getItem('costos-quotes')
-      console.log('📦 Datos en localStorage:', saved)
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        console.log('✅ Cotizaciones cargadas:', parsed)
-        setSavedQuotes(parsed)
+      console.log('🔍 Cargando cotización para aprobación desde BD:', cotizacionId)
+      
+      const quote = await getCotizacionById(cotizacionId)
+      
+      if (quote) {
+        setApprovalQuote(quote)
+        setShowApprovalView(true)
+        console.log('✅ Cotización para aprobación cargada desde BD:', quote)
       } else {
-        console.log('ℹ️ No hay cotizaciones guardadas')
+        console.error('❌ Cotización no encontrada en BD:', cotizacionId)
+        alert('Error: La cotización no fue encontrada. Es posible que haya sido eliminada.')
       }
     } catch (error) {
-      console.error('❌ Error cargando cotizaciones:', error)
+      console.error('❌ Error cargando cotización para aprobación:', error)
+      alert('Error al cargar la cotización para aprobación.')
     }
   }
 
-  const saveQuote = () => {
+  // Función para guardar cotización usando Dexie
+  const saveQuote = async () => {
     console.log('💾 Iniciando proceso de guardado...')
     console.log('👤 Cliente actual:', clienteName)
+    console.log('✏️ Editando cotización:', editingQuote)
     
     if (!clienteName.trim()) {
       console.log('❌ Error: Cliente vacío')
@@ -282,38 +317,49 @@ const CostosTable = () => {
       return
     }
 
-    const quote = {
-      id: editingQuote ? editingQuote.id : generateUniqueId(),
-      clienteName: clienteName.trim(),
-      trmGlobal,
-      rows,
-      totalGeneral: rows.reduce((sum, row) => sum + (row.pvpTotal || 0), 0),
-      date: editingQuote ? editingQuote.date : new Date().toISOString(),
-      dateFormatted: editingQuote ? editingQuote.dateFormatted : new Date().toLocaleString('es-CO'),
-      status: editingQuote ? editingQuote.status : 'draft' // draft, pending_approval, approved, denied
-    }
-
-    console.log('📋 Cotización a guardar:', quote)
-    console.log('📊 Cotizaciones existentes:', savedQuotes)
-
     try {
-      let updated
-      if (editingQuote) {
-        // Actualizar cotización existente
-        updated = savedQuotes.map(q => q.id === editingQuote.id ? quote : q)
-        console.log('🔄 Actualizando cotización existente')
+      let result
+
+      if (editingQuote && editingQuote.id) {
+        // ACTUALIZAR cotización existente
+        console.log('🔄 Actualizando cotización existente ID:', editingQuote.id)
+        
+        const updateData = {
+          clienteName: clienteName.trim(),
+          trmGlobal,
+          rows,
+          totalGeneral: rows.reduce((sum, row) => sum + (row.pvpTotal || 0), 0),
+          // NO cambiar: cotizacion_id, date, createdAt
+          // Solo actualizar: updatedAt se maneja automáticamente
+        }
+
+        result = await saveCotizacion({
+          id: editingQuote.id, // ID para identificar que es actualización
+          ...updateData
+        })
+        
+        console.log('✅ Cotización actualizada correctamente')
+        
       } else {
-        // Crear nueva cotización
-        updated = [...savedQuotes, quote]
-        console.log('➕ Creando nueva cotización')
+        // CREAR nueva cotización
+        console.log('➕ Creando nueva cotización...')
+        
+        const newQuote = {
+          cotizacion_id: generateUniqueId(),
+          clienteName: clienteName.trim(),
+          trmGlobal,
+          rows,
+          totalGeneral: rows.reduce((sum, row) => sum + (row.pvpTotal || 0), 0),
+          date: new Date().toISOString(),
+          dateFormatted: new Date().toLocaleString('es-CO'),
+          status: 'draft'
+        }
+
+        result = await saveCotizacion(newQuote)
+        
+        console.log('✅ Nueva cotización creada:', newQuote.cotizacion_id)
       }
       
-      console.log('📦 Cotizaciones actualizadas:', updated)
-      
-      localStorage.setItem('costos-quotes', JSON.stringify(updated))
-      console.log('✅ Guardado en localStorage exitoso')
-      
-      setSavedQuotes(updated)
       setSaveSuccess(true)
       
       // Si estábamos editando, limpiar el estado de edición
@@ -322,54 +368,39 @@ const CostosTable = () => {
         console.log('🔄 Modo edición finalizado')
       }
       
-      // Verificar que se guardó correctamente
-      const verification = localStorage.getItem('costos-quotes')
-      console.log('🔍 Verificación de guardado:', verification ? 'ÉXITO' : 'FALLÓ')
-      
       // Ocultar mensaje de éxito después de 2 segundos
       setTimeout(() => setSaveSuccess(false), 2000)
       
-      console.log('✅ Cotización guardada completamente:', quote)
+      console.log('✅ Guardado completado exitosamente')
     } catch (error) {
       console.error('❌ Error guardando cotización:', error)
       alert('Error al guardar la cotización')
     }
   }
 
-  // Funciones de debugging para localStorage
-  const debugLocalStorage = () => {
-    console.log('🔍 DEBUG LOCALSTORAGE:')
-    console.log('📊 savedQuotes state:', savedQuotes)
-    console.log('👤 clienteName state:', clienteName)
-    console.log('📦 localStorage directo:', localStorage.getItem('costos-quotes'))
-    console.log('🌐 localStorage disponible:', typeof Storage !== "undefined")
-    console.log('📝 Todas las keys en localStorage:', Object.keys(localStorage))
-  }
-
-  const clearLocalStorage = () => {
-    if (confirm('¿Estás seguro de que quieres limpiar todas las cotizaciones guardadas?')) {
-      localStorage.removeItem('costos-quotes')
-      setSavedQuotes([])
-      console.log('🗑️ localStorage limpiado')
-    }
-  }
-
   // Funciones para gestión de cotizaciones guardadas
   const loadQuote = (quote) => {
+    console.log('📂 Cargando cotización para edición:', quote)
+    
     setClienteName(quote.clienteName)
     setTrmGlobal(quote.trmGlobal)
     setRows(quote.rows)
-    setEditingQuote(quote)
+    setEditingQuote(quote) // Esto es CLAVE para que sepa que está editando
     setShowSavedQuotes(false)
-    console.log('📂 Cotización cargada para edición:', quote)
+    
+    console.log('✅ Estado de edición establecido con ID:', quote.id)
+    console.log('✅ Cotización ID:', quote.cotizacion_id)
   }
 
-  const deleteQuote = (quoteId) => {
+  const deleteQuote = async (quoteId) => {
     if (confirm('¿Estás seguro de que quieres eliminar esta cotización?')) {
-      const updated = savedQuotes.filter(q => q.id !== quoteId)
-      localStorage.setItem('costos-quotes', JSON.stringify(updated))
-      setSavedQuotes(updated)
-      console.log('🗑️ Cotización eliminada:', quoteId)
+      try {
+        await deleteCotizacion(quoteId)
+        console.log('🗑️ Cotización eliminada:', quoteId)
+      } catch (error) {
+        console.error('❌ Error eliminando cotización:', error)
+        alert('Error al eliminar la cotización')
+      }
     }
   }
 
@@ -392,40 +423,50 @@ const CostosTable = () => {
     }, 100)
   }
 
-  const duplicateQuote = (quote) => {
-    const duplicated = {
-      ...quote,
-      id: Date.now(),
-      clienteName: `${quote.clienteName} (Copia)`,
-      date: new Date().toISOString(),
-      dateFormatted: new Date().toLocaleString('es-CO')
+  const duplicateQuote = async (quote) => {
+    try {
+      await duplicateCotizacion(quote)
+      console.log('📋 Cotización duplicada exitosamente')
+    } catch (error) {
+      console.error('❌ Error duplicando cotización:', error)
+      alert('Error al duplicar la cotización')
     }
-    
-    const updated = [...savedQuotes, duplicated]
-    localStorage.setItem('costos-quotes', JSON.stringify(updated))
-    setSavedQuotes(updated)
-    console.log('📋 Cotización duplicada:', duplicated)
   }
 
   const newQuote = () => {
     if (editingQuote || rows.length > 0 || clienteName.trim()) {
       if (confirm('¿Estás seguro de que quieres crear una nueva cotización? Se perderán los cambios no guardados.')) {
+        // Limpiar completamente el estado
         setClienteName('')
-        setRows([])
-        setEditingQuote(null)
+        setRows([{
+          id: 1,
+          item: 1,
+          description: '',
+          quantity: 1,
+          unit: 'und',
+          unitCost: 0,
+          usdCost: 0,
+          laborCost: 0,
+          margin: 15,
+          pvpUnit: 0,
+          pvpTotal: 0
+        }])
+        setEditingQuote(null) // CLAVE: limpiar estado de edición
         setShowSavedQuotes(false)
         setCollapsedItems(new Set())
         setShowApprovalLink(false)
         setShowApprovalView(false)
-        console.log('📝 Nueva cotización iniciada')
+        console.log('🆕 Nueva cotización iniciada - estado de edición limpiado')
       }
     } else {
+      setEditingQuote(null) // También limpiar aquí
       setShowSavedQuotes(false)
+      console.log('🔄 Estado de edición limpiado')
     }
   }
 
   // Funciones para sistema de aprobación
-  const sendForApproval = () => {
+  const sendForApproval = async () => {
     if (!clienteName.trim()) {
       alert('Por favor ingresa el nombre del cliente antes de enviar a aprobación')
       return
@@ -436,26 +477,54 @@ const CostosTable = () => {
       return
     }
 
-    const quote = {
-      id: editingQuote ? editingQuote.id : generateUniqueId(),
-      clienteName: clienteName.trim(),
-      trmGlobal,
-      rows,
-      totalGeneral: rows.reduce((sum, row) => sum + (row.pvpTotal || 0), 0),
-      date: editingQuote ? editingQuote.date : new Date().toISOString(),
-      dateFormatted: editingQuote ? editingQuote.dateFormatted : new Date().toLocaleString('es-CO'),
-      status: 'pending_approval',
-      trmOficial: oficialTRM,
-      lastTrmUpdate: lastTrmUpdate
-    }
+    try {
+      // Preparar la cotización
+      const quote = {
+        cotizacion_id: editingQuote ? editingQuote.cotizacion_id : generateUniqueId(),
+        clienteName: clienteName.trim(),
+        trmGlobal,
+        rows,
+        totalGeneral: rows.reduce((sum, row) => sum + (row.pvpTotal || 0), 0),
+        date: editingQuote ? editingQuote.date : new Date().toISOString(),
+        dateFormatted: editingQuote ? editingQuote.dateFormatted : new Date().toLocaleString('es-CO'),
+        status: 'pending_approval',
+        trmOficial: oficialTRM,
+        lastTrmUpdate: lastTrmUpdate
+      }
 
-    const approvalLink = generateApprovalLink(quote)
-    if (approvalLink) {
-      setGeneratedLink(approvalLink)
+      // Si estamos editando, incluir el ID de la BD
+      if (editingQuote && editingQuote.id) {
+        quote.id = editingQuote.id
+      }
+
+      // PRIMERO: Guardar en la base de datos
+      console.log('💾 Guardando cotización en BD antes de enviar para aprobación...')
+      await saveCotizacion(quote)
+      
+      // Obtener la cotización guardada con su ID de BD
+      const savedQuote = await getCotizacionById(quote.cotizacion_id)
+      
+      if (!savedQuote) {
+        throw new Error('No se pudo recuperar la cotización guardada')
+      }
+
+      // SEGUNDO: Generar enlace usando el ID de la cotización
+      const approvalUrl = `${window.location.origin}${window.location.pathname}?approval_id=${savedQuote.cotizacion_id}`
+      
+      setGeneratedLink(approvalUrl)
       setShowApprovalLink(true)
-      console.log('🔗 Enlace de aprobación generado:', approvalLink)
-    } else {
-      alert('Error al generar el enlace de aprobación')
+      
+      console.log('✅ Cotización guardada en BD y enlace generado:', approvalUrl)
+      console.log('📊 ID de BD:', savedQuote.id, 'ID de Cotización:', savedQuote.cotizacion_id)
+      
+      // Actualizar estado de edición si es necesario
+      if (!editingQuote) {
+        setEditingQuote(savedQuote)
+      }
+      
+    } catch (error) {
+      console.error('❌ Error enviando cotización para aprobación:', error)
+      alert('Error al enviar la cotización para aprobación. Por favor, intenta de nuevo.')
     }
   }
 
@@ -467,14 +536,45 @@ const CostosTable = () => {
     })
   }
 
-  const handleApproval = (approved, reason = '') => {
+  const handleApproval = async (approved, reason = '') => {
     if (!approvalQuote) return
 
     const status = approved ? 'approved' : 'denied'
-    const message = generateWhatsAppMessage(approvalQuote.id, status, reason)
+    const message = generateWhatsAppMessage(approvalQuote.cotizacion_id, status, reason)
     
-    // Aquí podrías guardar el estado de aprobación si tuvieras una base de datos
-    console.log(`📋 Cotización ${approvalQuote.id} ${status}:`, reason)
+    try {
+      // Buscar y actualizar la cotización en la base de datos
+      const existingQuote = await getCotizacionById(approvalQuote.cotizacion_id)
+      
+      if (existingQuote) {
+        // Actualizar el estado de la cotización
+        await saveCotizacion({
+          ...existingQuote,
+          status: status,
+          approvalReason: reason,
+          approvalDate: new Date().toISOString(),
+          approvalDateFormatted: new Date().toLocaleString('es-CO')
+        })
+        
+        console.log(`✅ Cotización ${approvalQuote.cotizacion_id} ${status} y guardada en BD`)
+      } else {
+        // Si no existe en BD, crear una nueva entrada
+        await saveCotizacion({
+          ...approvalQuote,
+          status: status,
+          approvalReason: reason,
+          approvalDate: new Date().toISOString(),
+          approvalDateFormatted: new Date().toLocaleString('es-CO')
+        })
+        
+        console.log(`✅ Cotización ${approvalQuote.cotizacion_id} ${status} y creada en BD`)
+      }
+    } catch (error) {
+      console.error('❌ Error guardando estado de aprobación:', error)
+      // Continuar con el flujo aunque falle el guardado
+    }
+    
+    console.log(`📋 Cotización ${approvalQuote.cotizacion_id} ${status}:`, reason)
     
     openWhatsApp(message)
     setShowApprovalView(false)
@@ -1031,11 +1131,16 @@ const CostosTable = () => {
               🏷️ DATOS DEL PRODUCTO
             </h4>
             <div className="space-y-3">
-              <MobileCellWrapper label="MAYORISTA" colorClass="text-purple-600 dark:text-purple-400">
-                <MobileEditableCell 
+              <MobileCellWrapper label="PROVEEDOR" colorClass="text-purple-600 dark:text-purple-400">
+                <ProviderAutocomplete
                   value={row.mayorista}
-                  onChange={(value) => updateRow(row.id, 'mayorista', value)}
-                  className="font-medium"
+                  onChange={(value, provider) => {
+                    updateRow(row.id, 'mayorista', value)
+                    // Aquí podrías guardar información adicional del proveedor si es necesario
+                  }}
+                  placeholder="Buscar proveedor..."
+                  className="w-full"
+                  showImage={true}
                 />
               </MobileCellWrapper>
               
@@ -1371,13 +1476,24 @@ const CostosTable = () => {
 
             {/* Botón Ver Cotizaciones */}
             <Button 
-              onClick={() => setShowSavedQuotes(!showSavedQuotes)}
+              onClick={() => setShowQuotesModal(true)}
               className="bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
               size="sm"
             >
               <div className="h-4 w-4 mr-2">📋</div>
               <span className="hidden sm:inline">Cotizaciones ({savedQuotes.length})</span>
               <span className="sm:hidden">({savedQuotes.length})</span>
+            </Button>
+
+            {/* Botón Gestionar Proveedores */}
+            <Button 
+              onClick={() => setShowProvidersModal(true)}
+              className="bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+              size="sm"
+            >
+              <div className="h-4 w-4 mr-2">🏢</div>
+              <span className="hidden sm:inline">Proveedores</span>
+              <span className="sm:hidden">🏢</span>
             </Button>
 
             {/* Botón Enviar a Aprobación */}
@@ -1402,6 +1518,8 @@ const CostosTable = () => {
               <span className="hidden sm:inline">Nuevo</span>
             </Button>
 
+
+
             {/* Espaciador */}
             <div className="flex-1 hidden lg:block"></div>
 
@@ -1409,17 +1527,129 @@ const CostosTable = () => {
             {editingQuote ? (
               <div className="flex items-center gap-2 bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/30 dark:to-orange-900/30 px-3 py-1 rounded-full border border-yellow-200 dark:border-yellow-700">
                 <div className="w-2 h-2 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-full animate-pulse"></div>
-                <span className="text-xs font-medium text-yellow-700 dark:text-yellow-300">✏️ Editando: {editingQuote.clienteName}</span>
+                <span className="text-xs font-medium text-yellow-700 dark:text-yellow-300">
+                  ✏️ Editando: {editingQuote.clienteName}
+                  {editingQuote.status && editingQuote.status !== 'draft' && (
+                    <span className="ml-2 px-2 py-0.5 rounded-full text-xs bg-white dark:bg-gray-800">
+                      {editingQuote.status === 'pending_approval' && '⏳ Pendiente'}
+                      {editingQuote.status === 'approved' && '✅ Aprobada'}
+                      {editingQuote.status === 'denied' && '❌ Rechazada'}
+                    </span>
+                  )}
+                </span>
               </div>
             ) : (
-              <div className="hidden lg:flex items-center gap-2 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/30 dark:to-purple-900/30 px-3 py-1 rounded-full border border-blue-200 dark:border-blue-700">
-                <div className="w-2 h-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full animate-pulse"></div>
-                <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Sistema Activo</span>
+              <div className="hidden lg:flex items-center gap-2">
+                {/* Indicador de conectividad */}
+                <div className={`flex items-center gap-2 px-3 py-1 rounded-full border ${
+                  isOnline 
+                    ? 'bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/30 dark:to-emerald-900/30 border-green-200 dark:border-green-700'
+                    : 'bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-900/30 dark:to-amber-900/30 border-orange-200 dark:border-orange-700'
+                }`}>
+                  <div className={`w-2 h-2 rounded-full ${
+                    isOnline 
+                      ? 'bg-gradient-to-r from-green-500 to-emerald-500 animate-pulse'
+                      : 'bg-gradient-to-r from-orange-500 to-amber-500 animate-pulse'
+                  }`}></div>
+                  <span className={`text-xs font-medium ${
+                    isOnline 
+                      ? 'text-green-700 dark:text-green-300'
+                      : 'text-orange-700 dark:text-orange-300'
+                  }`}>
+                    {isOnline ? '🌐 Online' : '📱 Offline'}
+                  </span>
+                </div>
+
+                {/* Indicador de sincronización */}
+                {syncStats && (
+                  <div 
+                    className="flex items-center gap-2 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/30 dark:to-purple-900/30 px-3 py-1 rounded-full border border-blue-200 dark:border-blue-700 cursor-pointer"
+                    onClick={isOnline ? forceSync : undefined}
+                    title={isOnline ? 'Click para sincronizar' : 'Sin conexión'}
+                  >
+                    <div className="w-2 h-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full animate-pulse"></div>
+                    <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
+                      {syncStats.pending > 0 
+                        ? `📤 ${syncStats.pending} pendientes`
+                        : `✅ ${syncStats.synced} sincronizadas`
+                      }
+                    </span>
+                  </div>
+                )}
+
+                {/* Menú de Usuario */}
+                <div className="flex items-center gap-4">
+                  {/* Info del usuario */}
+                  <div className="hidden md:flex items-center gap-2 text-sm">
+                    <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-bold">
+                      {userInfo?.displayName?.charAt(0)?.toUpperCase() || userInfo?.email?.charAt(0)?.toUpperCase() || '👤'}
+                    </div>
+                    <div className="text-gray-700 dark:text-gray-300">
+                      <div className="font-medium">{userInfo?.displayName || 'Usuario'}</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">{userInfo?.email}</div>
+                    </div>
+                  </div>
+
+                  {/* Botón de cerrar sesión */}
+                  <button
+                    onClick={logout}
+                    className="flex items-center gap-2 px-3 py-1 rounded-full border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+                    title="Cerrar sesión"
+                  >
+                    <span className="hidden sm:inline">👋 Salir</span>
+                    <span className="sm:hidden">👋</span>
+                  </button>
+                </div>
               </div>
             )}
           </motion.div>
         </div>
       </div>
+
+      {/* Dashboard de Estado de Cotizaciones */}
+      {savedQuotes.length > 0 && (
+        <motion.div
+          className="w-full px-4 pt-4"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+        >
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg p-4 shadow-sm">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">📊 Estado de Cotizaciones</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {/* Total */}
+              <div className="text-center">
+                <div className="text-lg font-bold text-blue-600 dark:text-blue-400">{savedQuotes.length}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">Total</div>
+              </div>
+              
+              {/* Pendientes */}
+              <div className="text-center">
+                <div className="text-lg font-bold text-yellow-600 dark:text-yellow-400">
+                  {savedQuotes.filter(q => q.status === 'pending_approval').length}
+                </div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">⏳ Pendientes</div>
+              </div>
+              
+              {/* Aprobadas */}
+              <div className="text-center">
+                <div className="text-lg font-bold text-green-600 dark:text-green-400">
+                  {savedQuotes.filter(q => q.status === 'approved').length}
+                </div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">✅ Aprobadas</div>
+              </div>
+              
+              {/* Rechazadas */}
+              <div className="text-center">
+                <div className="text-lg font-bold text-red-600 dark:text-red-400">
+                  {savedQuotes.filter(q => q.status === 'denied').length}
+                </div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">❌ Rechazadas</div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* Contenido Principal */}
       <div className="w-full px-4 py-8">
@@ -1433,7 +1663,7 @@ const CostosTable = () => {
                     {/* Columnas fijas */}
                     <th className="sticky left-0 z-10 p-4 text-center font-semibold text-xs w-20 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 border-r-2 border-r-gray-400 dark:border-r-gray-500">ITEM</th>
                     <th className="sticky left-20 z-10 p-4 text-center font-semibold text-xs w-24 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 border-r-2 border-r-gray-400 dark:border-r-gray-500">CANT.</th>
-                    <th className="sticky left-44 z-10 p-4 text-left font-semibold text-xs w-40 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 border-r-2 border-r-gray-400 dark:border-r-gray-500">MAYORISTA</th>
+                    <th className="sticky left-44 z-10 p-4 text-left font-semibold text-xs w-48 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 border-r-2 border-r-gray-400 dark:border-r-gray-500">PROVEEDOR</th>
                     
                     {/* Columnas con scroll */}
                     <th className="p-4 text-left font-semibold text-xs w-36 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">MARCA</th>
@@ -1470,12 +1700,17 @@ const CostosTable = () => {
                           minWidth="100%"
                         />
                       </td>
-                      <td className="sticky left-44 z-10 p-3 w-40 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 border-r-2 border-r-gray-400 dark:border-r-gray-500">
-                        <EditableCell 
-                          type="text"
+                      <td className="sticky left-44 z-10 p-3 w-48 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 border-r-2 border-r-gray-400 dark:border-r-gray-500">
+                        <ProviderAutocomplete
                           value={row.mayorista}
-                          onChange={(value) => updateRow(row.id, 'mayorista', value)}
-                          minWidth="100%"
+                          onChange={(value, provider) => {
+                            updateRow(row.id, 'mayorista', value)
+                            // Aquí podrías guardar información adicional del proveedor si es necesario
+                          }}
+                          placeholder="Proveedor..."
+                          className="w-full"
+                          showImage={true}
+                          maxSuggestions={3}
                         />
                       </td>
                       
@@ -1830,7 +2065,7 @@ const CostosTable = () => {
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
                         <div>
                           <span className="text-sm text-gray-500 dark:text-gray-400">ID Cotización</span>
-                          <div className="font-bold text-lg text-orange-600 dark:text-orange-400">{approvalQuote.id}</div>
+                          <div className="font-bold text-lg text-orange-600 dark:text-orange-400">{approvalQuote.cotizacion_id}</div>
                         </div>
                         <div>
                           <span className="text-sm text-gray-500 dark:text-gray-400">Cliente</span>
@@ -2013,7 +2248,7 @@ const CostosTable = () => {
                           👤 {quote.clienteName}
                         </h3>
                         <p className="text-xs text-gray-500 dark:text-gray-500 font-mono">
-                          🆔 {quote.id}
+                          🆔 {quote.cotizacion_id}
                         </p>
                         <p className="text-sm text-gray-600 dark:text-gray-400">
                           📅 {quote.dateFormatted}
@@ -2090,6 +2325,24 @@ const CostosTable = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Modal de Cotizaciones Guardadas */}
+      <SavedQuotesModal
+        isOpen={showQuotesModal}
+        onClose={() => setShowQuotesModal(false)}
+        savedQuotes={savedQuotes}
+        onLoadQuote={loadQuote}
+        onDeleteQuote={deleteQuote}
+        onDuplicateQuote={duplicateQuote}
+        onExportQuote={exportQuotePDF}
+        loading={dbLoading}
+      />
+
+      {/* Modal de Gestión de Proveedores */}
+      <ProvidersModal
+        isOpen={showProvidersModal}
+        onClose={() => setShowProvidersModal(false)}
+      />
     </div>
   )
 }
