@@ -205,7 +205,7 @@ const ProviderAutocomplete = ({
 
         {/* Dropdown de sugerencias cuando está expandido */}
         {isOpen && suggestions.length > 0 && (
-          <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+          <div className="absolute z-[99999] w-full bottom-full mb-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-xl max-h-60 overflow-y-auto">
             {suggestions.map((provider) => (
               <button
                 key={provider.id}
@@ -246,7 +246,7 @@ const ProviderAutocomplete = ({
 
         {/* Mensaje cuando no hay resultados */}
         {isOpen && inputValue.trim() && suggestions.length === 0 && (
-          <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-xl p-4 text-center text-gray-500 dark:text-gray-400">
+          <div className="absolute z-[99999] w-full bottom-full mb-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-xl p-4 text-center text-gray-500 dark:text-gray-400">
             <div className="flex flex-col items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
                 <Search className="w-4 h-4 text-gray-400" />
@@ -315,7 +315,7 @@ const ProviderAutocomplete = ({
 
       {/* Dropdown de sugerencias mejorado */}
       {isOpen && suggestions.length > 0 && (
-        <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+        <div className="absolute z-[99999] w-full bottom-full mb-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-xl max-h-60 overflow-y-auto">
           {suggestions.map((provider) => (
             <button
               key={provider.id}
@@ -356,7 +356,7 @@ const ProviderAutocomplete = ({
 
       {/* Mensaje cuando no hay resultados */}
       {isOpen && inputValue.trim() && suggestions.length === 0 && (
-        <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-xl p-4 text-center text-gray-500 dark:text-gray-400">
+        <div className="absolute z-[99999] w-full bottom-full mb-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-xl p-4 text-center text-gray-500 dark:text-gray-400">
           <div className="flex flex-col items-center gap-2">
             <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
               <Search className="w-4 h-4 text-gray-400" />

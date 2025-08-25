@@ -19,7 +19,7 @@ const SavedQuotesModal = ({
 
   // Filtrar y ordenar cotizaciones
   const filteredAndSortedQuotes = useMemo(() => {
-    let filtered = savedQuotes
+    let filtered = savedQuotes || []
 
     // Filtrar por término de búsqueda
     if (searchTerm.trim()) {
@@ -289,24 +289,80 @@ const SavedQuotesModal = ({
                         </div>
                       </div>
 
-                      {/* Información de aprobación */}
-                      {(quote.status === 'approved' || quote.status === 'denied') && (
-                        <div className="mb-4 p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50">
-                          <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">
-                            {quote.status === 'approved' ? '✅ Fecha de Aprobación' : '❌ Fecha de Rechazo'}
+                      {/* Información de respuesta */}
+                      {(quote.status === 'approved' || quote.status === 'denied' || quote.status === 'revision_requested') && (
+                        <div className={`mb-4 p-3 rounded-lg border-l-4 ${
+                          quote.status === 'approved' 
+                            ? 'bg-green-50 dark:bg-green-900/20 border-green-500' 
+                            : quote.status === 'revision_requested'
+                            ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-500'
+                            : 'bg-red-50 dark:bg-red-900/20 border-red-500'
+                        }`}>
+                          <div className="text-sm font-medium mb-2">
+                            {quote.status === 'approved' && '✅ COTIZACIÓN APROBADA'}
+                            {quote.status === 'revision_requested' && '🔄 RE-COTIZACIÓN SOLICITADA'}
+                            {quote.status === 'denied' && '❌ COTIZACIÓN DENEGADA'}
                           </div>
-                          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                            {quote.approvalDateFormatted || 'No disponible'}
+                          
+                          <div className="text-xs text-gray-600 dark:text-gray-400 mb-2">
+                            📅 {quote.approvalDateFormatted || quote.revisionDateFormatted || 'No disponible'}
                           </div>
-                          {quote.approvalReason && (
-                            <>
-                              <div className="text-sm text-gray-500 dark:text-gray-400 mt-2 mb-1">
-                                {quote.status === 'denied' ? 'Motivo del Rechazo:' : 'Observaciones:'}
+
+                          {/* Opciones seleccionadas para aprobadas */}
+                          {quote.status === 'approved' && quote.selectedOptions && (
+                            <div className="space-y-2">
+                              <div className="text-xs font-medium text-green-700 dark:text-green-300">
+                                📦 Opciones Seleccionadas:
                               </div>
-                              <div className="text-sm text-gray-700 dark:text-gray-300 italic">
+                              {Object.entries(quote.selectedOptions).map(([itemId, rowId]) => {
+                                const selectedRow = quote.rows?.find(row => row.id === rowId)
+                                if (!selectedRow) return null
+                                return (
+                                  <div key={itemId} className="text-xs bg-white dark:bg-gray-700 p-2 rounded border">
+                                    <span className="font-medium">{selectedRow.itemName || `Producto ${selectedRow.item}`}:</span>
+                                    <br />
+                                    <span className="text-gray-600 dark:text-gray-400">
+                                      {selectedRow.mayorista} - {formatCurrency(selectedRow.pvpTotal)}
+                                    </span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+
+                          {/* Comentarios para re-cotización */}
+                          {(quote.status === 'revision_requested' || quote.status === 'denied') && quote.itemComments && (
+                            <div className="space-y-2">
+                              <div className="text-xs font-medium text-orange-700 dark:text-orange-300">
+                                💬 Comentarios por Producto:
+                              </div>
+                              {Object.entries(quote.itemComments).map(([itemId, comment]) => {
+                                if (!comment || !comment.trim()) return null
+                                const itemRow = quote.rows?.find(row => row.itemId === itemId)
+                                const itemName = itemRow?.itemName || `Producto ${itemId}`
+                                return (
+                                  <div key={itemId} className="text-xs bg-white dark:bg-gray-700 p-2 rounded border">
+                                    <span className="font-medium">{itemName}:</span>
+                                    <br />
+                                    <span className="text-gray-600 dark:text-gray-400 italic">
+                                      "{comment}"
+                                    </span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+
+                          {/* Razón de rechazo antigua (compatibilidad) */}
+                          {quote.status === 'denied' && quote.approvalReason && (
+                            <div className="mt-2">
+                              <div className="text-xs font-medium text-red-700 dark:text-red-300 mb-1">
+                                Motivo del Rechazo:
+                              </div>
+                              <div className="text-xs text-gray-700 dark:text-gray-300 italic bg-white dark:bg-gray-700 p-2 rounded border">
                                 "{quote.approvalReason}"
                               </div>
-                            </>
+                            </div>
                           )}
                         </div>
                       )}

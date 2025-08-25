@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, X, Moon, Sun, Download, FileText, Save, Send } from 'lucide-react'
+import { Plus, X, Moon, Sun, Download, FileText, Save, Send, Package } from 'lucide-react'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 
@@ -35,25 +35,12 @@ const generateApprovalLink = (quote) => {
   const encodedQuote = encodeQuoteToBase64(quote)
   if (!encodedQuote) return null
   
-  const baseUrl = window.location.origin + window.location.pathname
-  return `${baseUrl}?approval=${encodedQuote}`
+  return `${APP_BASE_URL}?approval=${encodedQuote}`
 }
 
-const generateWhatsAppMessage = (quoteId, status, reason = '') => {
-  const baseMessage = `🏢 *RESPUESTA DE APROBACIÓN*\n\n📋 *ID Cotización:* ${quoteId}\n`
-  
-  if (status === 'approved') {
-    return baseMessage + `✅ *Estado:* APROBADA\n\n¡La cotización ha sido aprobada y puede proceder!`
-  } else {
-    return baseMessage + `❌ *Estado:* DENEGADA\n📝 *Razón:* ${reason}\n\nPor favor revise y ajuste según los comentarios.`
-  }
-}
+// Función eliminada - ya no generamos mensajes de WhatsApp
 
-const openWhatsApp = (message, phone = '') => {
-  const encodedMessage = encodeURIComponent(message)
-  const whatsappUrl = `https://wa.me/${phone}?text=${encodedMessage}`
-  window.open(whatsappUrl, '_blank')
-}
+// Función eliminada - ya no usamos WhatsApp para aprobaciones
 import { Card, CardContent } from './ui/card'
 import { useTheme } from '../hooks/useTheme.jsx'
 import { useCotizaciones } from '../hooks/useCotizaciones.jsx'
@@ -61,8 +48,18 @@ import { useAuth } from '../contexts/AuthContext.jsx'
 import SavedQuotesModal from './SavedQuotesModal.jsx'
 import ProvidersModal from './ProvidersModal.jsx'
 import ProviderAutocomplete from './ProviderAutocomplete.jsx'
+import FirstItemModal from './FirstItemModal.jsx'
+import NotificationToast from './NotificationToast.jsx'
+import AdditionalCostsModal from './AdditionalCostsModal.jsx'
+import PinValidationModal from './PinValidationModal.jsx'
+import useRealtimeNotifications from '../hooks/useRealtimeNotifications.jsx'
+import { providersManager } from '../lib/providersConfig.js'
+import { generatePinInfo, generateSecurityMessage, validatePinFormat } from '../lib/pinUtils.js'
 import { formatCurrency, formatPercentage, parseNumber, cn } from '../lib/utils'
 import jsPDF from 'jspdf'
+
+// URL base de la aplicación desplegada
+const APP_BASE_URL = 'https://cuadro-de-costos.vercel.app'
 
 const CostosTable = () => {
   const { theme, setTheme } = useTheme()
@@ -84,6 +81,69 @@ const CostosTable = () => {
     refreshCotizaciones,
     forceSync
   } = useCotizaciones()
+
+  // Hook para notificaciones en tiempo real
+  const {
+    currentNotification,
+    dismissCurrentNotification
+  } = useRealtimeNotifications()
+
+  // Auto-dismiss notificaciones después de 10 segundos
+  useEffect(() => {
+    if (currentNotification) {
+      const timer = setTimeout(() => {
+        dismissCurrentNotification()
+      }, 10000) // 10 segundos
+
+      return () => clearTimeout(timer)
+    }
+  }, [currentNotification, dismissCurrentNotification])
+
+  // Función para obtener información del proveedor
+  const getProviderInfo = (providerName) => {
+    if (!providerName) return null
+    
+    const providers = providersManager.getAll()
+    const provider = providers.find(p => 
+      p.name.toLowerCase().trim() === providerName.toLowerCase().trim()
+    )
+    
+    return provider || {
+      name: providerName,
+      imageUrl: `https://via.placeholder.com/150x150?text=${encodeURIComponent(providerName)}`,
+      category: 'No especificado'
+    }
+  }
+
+  // Función para obtener resumen de aprobación
+  const getApprovalSummary = () => {
+    if (!editingQuote || !editingQuote.selectedOptions) return null
+
+    const allRows = editingQuote.rows || rows
+    const selectedRowIds = Object.values(editingQuote.selectedOptions)
+    
+    const approvedRows = allRows.filter(row => selectedRowIds.includes(row.id))
+    const rejectedRows = allRows.filter(row => !selectedRowIds.includes(row.id))
+    
+    const approvedTotal = approvedRows.reduce((sum, row) => sum + (row.pvpTotal || 0), 0)
+    const rejectedTotal = rejectedRows.reduce((sum, row) => sum + (row.pvpTotal || 0), 0)
+    const originalTotal = approvedTotal + rejectedTotal
+
+    return {
+      approved: {
+        rows: approvedRows,
+        count: approvedRows.length,
+        total: approvedTotal
+      },
+      rejected: {
+        rows: rejectedRows,
+        count: rejectedRows.length,
+        total: rejectedTotal
+      },
+      originalTotal,
+      savings: rejectedTotal
+    }
+  }
   
   const [rows, setRows] = useState([
     {
@@ -133,10 +193,25 @@ const CostosTable = () => {
     const margen = Math.max(0, parseNumber(row.margen) || 30)
     const ivaPercentPVP = Math.max(0, parseNumber(row.ivaPercentPVP) || 0)
     
-    // 1. Calcular COSTO COP: si hay USD convertir, sino usar directo
+    // Calcular costos adicionales
+    const additionalCosts = row.additionalCosts || []
+    const additionalCostUSD = additionalCosts.reduce((sum, cost) => {
+      if (cost.description.trim()) {
+        if (cost.currency === 'USD' && cost.valueUSD > 0) {
+          return sum + cost.valueUSD
+        } else if (cost.currency === 'COP' && cost.valueCOP > 0) {
+          // Convertir COP a USD usando TRM
+          return sum + (cost.valueCOP / trm)
+        }
+      }
+      return sum
+    }, 0)
+    
+    // 1. Calcular COSTO COP: si hay USD convertir, sino usar directo (incluyendo costos adicionales)
     let costoCOP = 0
-    if (costoUSD > 0 && trm > 0) {
-      costoCOP = costoUSD * trm
+    const totalCostoUSD = costoUSD + additionalCostUSD
+    if (totalCostoUSD > 0 && trm > 0) {
+      costoCOP = totalCostoUSD * trm
     } else {
       costoCOP = Math.max(0, parseNumber(row.costoCOP) || 0)
     }
@@ -168,6 +243,7 @@ const CostosTable = () => {
       ...row,
       cantidad,
       costoUSD,
+      additionalCostUSD,
       trm,
       costoCOP,
       ivaPercentCosto,
@@ -220,6 +296,42 @@ const CostosTable = () => {
   const [generatedLink, setGeneratedLink] = useState('')
   const [approvalQuote, setApprovalQuote] = useState(null)
   const [showApprovalView, setShowApprovalView] = useState(false)
+  const [selectedOptions, setSelectedOptions] = useState({}) // {itemId: rowId}
+  const [itemComments, setItemComments] = useState({}) // {itemId: comment}
+
+  // Estados para nuevo flujo basado en ítems
+  const [currentItem, setCurrentItem] = useState(null)
+  const [showFirstItemModal, setShowFirstItemModal] = useState(false)
+  const [itemBasedMode, setItemBasedMode] = useState(false)
+
+    // Estado para modo solo lectura
+  const isReadOnlyMode = editingQuote && (
+    editingQuote.status === 'approved' ||
+    editingQuote.status === 'denied'
+  )
+
+  // Estados para costos adicionales
+  const [showAdditionalCostsModal, setShowAdditionalCostsModal] = useState(false)
+  const [selectedRowForCosts, setSelectedRowForCosts] = useState(null)
+
+  // Estados para PIN de seguridad
+  const [showPinValidation, setShowPinValidation] = useState(false)
+  const [pinAttempts, setPinAttempts] = useState(0)
+  const [validatedPin, setValidatedPin] = useState(null)
+
+  // Función para abrir modal de costos adicionales
+  const openAdditionalCostsModal = (row) => {
+    setSelectedRowForCosts(row)
+    setShowAdditionalCostsModal(true)
+  }
+
+  // Función para guardar costos adicionales
+  const saveAdditionalCosts = (additionalCosts) => {
+    if (selectedRowForCosts) {
+      updateRow(selectedRowForCosts.id, 'additionalCosts', additionalCosts)
+      setSelectedRowForCosts(null)
+    }
+  }
 
   // Función para obtener TRM oficial de datos.gov.co (GOBIERNO COLOMBIANO)
   const fetchOficialTRM = async () => {
@@ -269,8 +381,10 @@ const CostosTable = () => {
     const approvalId = urlParams.get('approval_id') // Método nuevo (ID de BD)
     
     if (approvalId) {
-      // Método nuevo: Cargar desde base de datos
-      loadQuoteForApproval(approvalId)
+      // Método nuevo: Mostrar modal de PIN antes de cargar
+      console.log('🔐 Cotización requiere PIN de seguridad:', approvalId)
+      setShowPinValidation(true)
+      window.pendingApprovalId = approvalId
     } else if (approvalData) {
       // Método antiguo: Decodificar desde URL (para compatibilidad)
       const decodedQuote = decodeQuoteFromBase64(approvalData)
@@ -281,8 +395,93 @@ const CostosTable = () => {
       } else {
         alert('Error: El enlace de aprobación no es válido')
       }
+    } else {
+      // Si no hay cotización para aprobar y es primera vez, mostrar modal de primer ítem
+      setTimeout(() => {
+        if (!editingQuote && !currentItem && rows.length === 1 && !rows[0].mayorista) {
+          setShowFirstItemModal(true)
+        }
+      }, 1000) // Esperar un poco para que se cargue todo
     }
   }, [])
+
+  // Función para validar PIN de seguridad
+  const validateSecurityPin = async (enteredPin) => {
+    try {
+      const approvalId = window.pendingApprovalId
+      if (!approvalId) {
+        console.error('❌ No hay ID de aprobación pendiente')
+        return false
+      }
+
+      console.log('🔐 Validando PIN para cotización:', approvalId)
+      
+      // Obtener la cotización de la base de datos
+      const quote = await getCotizacionById(approvalId)
+      
+      if (!quote) {
+        console.error('❌ Cotización no encontrada:', approvalId)
+        alert('Error: Cotización no encontrada')
+        return false
+      }
+
+      // Verificar si la cotización tiene PIN de seguridad
+      if (!quote.securityPin || !quote.securityPin.pin) {
+        console.error('❌ Cotización sin PIN de seguridad')
+        alert('Error: Esta cotización no tiene un PIN de seguridad configurado')
+        return false
+      }
+
+      // Validar formato del PIN ingresado
+      if (!validatePinFormat(enteredPin)) {
+        console.error('❌ Formato de PIN inválido')
+        return false
+      }
+
+      // Comparar PINs
+      const isValidPin = enteredPin === quote.securityPin.pin
+      
+      if (isValidPin) {
+        console.log('✅ PIN válido - cargando cotización')
+        
+        // Actualizar estadísticas de uso del PIN
+        try {
+          const updatedSecurityPin = {
+            ...quote.securityPin,
+            usageCount: (quote.securityPin.usageCount || 0) + 1,
+            lastUsed: new Date().toISOString()
+          }
+          
+          await saveCotizacion({
+            id: quote.id,
+            securityPin: updatedSecurityPin
+          })
+        } catch (error) {
+          console.warn('⚠️ Error actualizando estadísticas de PIN:', error)
+          // No fallar la validación por esto
+        }
+        
+        // Cargar la cotización para aprobación
+        setValidatedPin(enteredPin)
+        setShowPinValidation(false)
+        setPinAttempts(0)
+        
+        // Cargar cotización
+        await loadQuoteForApproval(approvalId)
+        
+        return true
+      } else {
+        console.log('❌ PIN incorrecto')
+        setPinAttempts(prev => prev + 1)
+        return false
+      }
+      
+    } catch (error) {
+      console.error('❌ Error validando PIN:', error)
+      alert('Error al validar el PIN. Intenta de nuevo.')
+      return false
+    }
+  }
 
   // Función para cargar cotización desde BD para aprobación
   const loadQuoteForApproval = async (cotizacionId) => {
@@ -325,10 +524,10 @@ const CostosTable = () => {
         console.log('🔄 Actualizando cotización existente ID:', editingQuote.id)
         
         const updateData = {
-          clienteName: clienteName.trim(),
-          trmGlobal,
-          rows,
-          totalGeneral: rows.reduce((sum, row) => sum + (row.pvpTotal || 0), 0),
+      clienteName: clienteName.trim(),
+      trmGlobal,
+      rows,
+      totalGeneral: rows.reduce((sum, row) => sum + (row.pvpTotal || 0), 0),
           // NO cambiar: cotizacion_id, date, createdAt
           // Solo actualizar: updatedAt se maneja automáticamente
         }
@@ -396,7 +595,7 @@ const CostosTable = () => {
     if (confirm('¿Estás seguro de que quieres eliminar esta cotización?')) {
       try {
         await deleteCotizacion(quoteId)
-        console.log('🗑️ Cotización eliminada:', quoteId)
+      console.log('🗑️ Cotización eliminada:', quoteId)
       } catch (error) {
         console.error('❌ Error eliminando cotización:', error)
         alert('Error al eliminar la cotización')
@@ -433,6 +632,176 @@ const CostosTable = () => {
     }
   }
 
+  // Función para agrupar filas de aprobación por ítems
+  const getGroupedApprovalRows = (rows) => {
+    if (!rows || rows.length === 0) return []
+    
+    const groups = {}
+    rows.forEach(row => {
+      const itemId = row.itemId || `item-${row.item || row.id}`
+      const itemName = row.itemName || `Producto ${row.item}`
+      
+      if (!groups[itemId]) {
+        groups[itemId] = {
+          item: {
+            id: itemId,
+            name: itemName,
+            description: row.itemDescription || ''
+          },
+          options: []
+        }
+      }
+      groups[itemId].options.push(row)
+    })
+
+    return Object.values(groups)
+  }
+
+  // Función para agrupar filas por ítems
+    const getGroupedRows = () => {
+    // Si es una cotización aprobada y estamos editando, mostrar solo las opciones seleccionadas
+    let rowsToShow = rows
+    if (editingQuote && editingQuote.status === 'approved' && editingQuote.selectedOptions) {
+      const selectedRowIds = Object.values(editingQuote.selectedOptions)
+      rowsToShow = rows.filter(row => selectedRowIds.includes(row.id))
+      console.log('📋 Mostrando solo opciones aprobadas:', selectedRowIds)
+    }
+
+    if (!itemBasedMode) {
+      // Modo tradicional: cada fila es independiente
+      return rowsToShow.map(row => ({
+        item: {
+          id: row.itemId || `item-${row.id}`,
+          name: row.itemName || `Producto ${row.item}`,
+          description: row.itemDescription || ''
+        },
+        options: [row]
+      }))
+    }
+
+    // Modo ítem: agrupar por itemId, incluyendo ítems sin opciones
+    const groups = {}
+    rowsToShow.forEach(row => {
+      // Usar itemId si existe, sino crear uno único por fila
+      const itemId = row.itemId || `item-${row.id}`
+      const itemName = row.itemName || `Producto ${row.item}`
+
+      if (!groups[itemId]) {
+        groups[itemId] = {
+          item: {
+            id: itemId,
+            name: itemName,
+            description: row.itemDescription || ''
+          },
+          options: []
+        }
+      }
+      groups[itemId].options.push(row)
+    })
+
+    return Object.values(groups)
+  }
+
+  // Funciones para el nuevo flujo basado en ítems
+  const handleFirstItemAdd = async (item) => {
+    console.log('📦 Agregando ítem:', item)
+    setItemBasedMode(true)
+    
+    // Verificar si es realmente el primer ítem (sin datos previos)
+    const isReallyFirstItem = rows.length === 1 && 
+                              !rows[0].mayorista && 
+                              !rows[0].marca && 
+                              !rows[0].itemId &&
+                              !rows[0].itemName
+    
+    if (isReallyFirstItem) {
+      // Es el primer ítem y la primera fila está completamente vacía
+      setCurrentItem(item)
+      setRows(prevRows => {
+        const updatedRows = [...prevRows]
+        updatedRows[0] = {
+          ...updatedRows[0],
+          itemId: item.id,
+          itemName: item.name,
+          itemDescription: item.description,
+          configuracion: item.description || item.name
+        }
+        return updatedRows
+      })
+    } else {
+      // Siempre añadir nuevo ítem con nueva fila (incluso si hay ítems sin opciones)
+      const newRow = {
+        id: Date.now() + Math.random(),
+        item: rows.length + 1,
+        itemId: item.id,
+        itemName: item.name,
+        itemDescription: item.description,
+        cantidad: 1,
+        mayorista: '',
+        marca: '',
+        referencia: '',
+        configuracion: item.description || item.name,
+        costoUSD: 0,
+        trm: trmGlobal,
+        costoCOP: 0,
+        ivaPercentCosto: 0,
+        valorIvaCosto: 0,
+        costoConIva: 0,
+        costoTotal: 0,
+        margen: 30,
+        pvpUnitario: 0,
+        ivaPercentPVP: 0,
+        valorIvaPVP: 0,
+        pvpMasIva: 0,
+        pvpTotal: 0
+      }
+      setRows(prevRows => [...prevRows, newRow])
+      console.log('📦 Nuevo ítem añadido como fila adicional:', item.name)
+    }
+    
+    setShowFirstItemModal(false)
+  }
+
+  const addNewItemOption = (item = null) => {
+    // Si no se pasa un ítem específico, usar el actual
+    const targetItem = item || currentItem
+    if (!targetItem) return
+    
+    // Agregar nueva fila para el ítem específico
+    const newRow = {
+      id: Date.now() + Math.random(), // ID único
+      item: rows.length + 1,
+      itemId: targetItem.id,
+      itemName: targetItem.name,
+      itemDescription: targetItem.description,
+      cantidad: 1,
+      mayorista: '',
+      marca: '',
+      referencia: '',
+      configuracion: targetItem.description || targetItem.name,
+      costoUSD: 0,
+      trm: trmGlobal,
+      costoCOP: 0,
+      ivaPercentCosto: 0,
+      valorIvaCosto: 0,
+      costoConIva: 0,
+      costoTotal: 0,
+      margen: 30,
+      pvpUnitario: 0,
+      ivaPercentPVP: 0,
+      valorIvaPVP: 0,
+      pvpMasIva: 0,
+      pvpTotal: 0
+    }
+    
+    setRows(prevRows => [...prevRows, newRow])
+    console.log('📦 Nueva opción añadida para:', targetItem.name)
+  }
+
+  const addNewItem = () => {
+    setShowFirstItemModal(true)
+  }
+
   const newQuote = () => {
     if (editingQuote || rows.length > 0 || clienteName.trim()) {
       if (confirm('¿Estás seguro de que quieres crear una nueva cotización? Se perderán los cambios no guardados.')) {
@@ -441,14 +810,23 @@ const CostosTable = () => {
         setRows([{
           id: 1,
           item: 1,
-          description: '',
-          quantity: 1,
-          unit: 'und',
-          unitCost: 0,
-          usdCost: 0,
-          laborCost: 0,
-          margin: 15,
-          pvpUnit: 0,
+          cantidad: 1,
+          mayorista: '',
+          marca: '',
+          referencia: '',
+          configuracion: '',
+          costoUSD: 0,
+          trm: trmGlobal,
+          costoCOP: 0,
+          ivaPercentCosto: 0,
+          valorIvaCosto: 0,
+          costoConIva: 0,
+          costoTotal: 0,
+          margen: 30,
+          pvpUnitario: 0,
+          ivaPercentPVP: 0,
+          valorIvaPVP: 0,
+          pvpMasIva: 0,
           pvpTotal: 0
         }])
         setEditingQuote(null) // CLAVE: limpiar estado de edición
@@ -456,12 +834,33 @@ const CostosTable = () => {
         setCollapsedItems(new Set())
         setShowApprovalLink(false)
         setShowApprovalView(false)
+        
+        // Limpiar estados del modo ítem
+        setCurrentItem(null)
+        setItemBasedMode(false)
+        setShowFirstItemModal(false)
+        
         console.log('🆕 Nueva cotización iniciada - estado de edición limpiado')
+        
+        // Mostrar modal de primer ítem después de un momento
+        setTimeout(() => {
+          setShowFirstItemModal(true)
+        }, 500)
       }
     } else {
       setEditingQuote(null) // También limpiar aquí
       setShowSavedQuotes(false)
+      
+      // Limpiar estados del modo ítem
+      setCurrentItem(null)
+      setItemBasedMode(false)
+      
       console.log('🔄 Estado de edición limpiado')
+      
+      // Mostrar modal de primer ítem
+      setTimeout(() => {
+        setShowFirstItemModal(true)
+      }, 300)
     }
   }
 
@@ -479,18 +878,29 @@ const CostosTable = () => {
 
     try {
       // Preparar la cotización
-      const quote = {
+    const quote = {
         cotizacion_id: editingQuote ? editingQuote.cotizacion_id : generateUniqueId(),
-        clienteName: clienteName.trim(),
-        trmGlobal,
-        rows,
-        totalGeneral: rows.reduce((sum, row) => sum + (row.pvpTotal || 0), 0),
-        date: editingQuote ? editingQuote.date : new Date().toISOString(),
-        dateFormatted: editingQuote ? editingQuote.dateFormatted : new Date().toLocaleString('es-CO'),
-        status: 'pending_approval',
-        trmOficial: oficialTRM,
-        lastTrmUpdate: lastTrmUpdate
-      }
+      clienteName: clienteName.trim(),
+      trmGlobal,
+      rows,
+      totalGeneral: rows.reduce((sum, row) => sum + (row.pvpTotal || 0), 0),
+      date: editingQuote ? editingQuote.date : new Date().toISOString(),
+      dateFormatted: editingQuote ? editingQuote.dateFormatted : new Date().toLocaleString('es-CO'),
+      status: 'pending_approval',
+      trmOficial: oficialTRM,
+      lastTrmUpdate: lastTrmUpdate,
+      // Información del vendedor
+      vendorName: userInfo?.displayName || userInfo?.email || 'Vendedor',
+      vendorEmail: userInfo?.email || 'sin-email'
+    }
+
+    // Generar PIN de seguridad único
+    console.log('🔐 Generando PIN de seguridad...')
+    const existingPins = [] // TODO: En el futuro, obtener PINs existentes para evitar duplicados
+    const securityPinInfo = generatePinInfo(quote.cotizacion_id, existingPins)
+    quote.securityPin = securityPinInfo
+    
+    console.log('✅ PIN de seguridad generado:', securityPinInfo.pin)
 
       // Si estamos editando, incluir el ID de la BD
       if (editingQuote && editingQuote.id) {
@@ -509,12 +919,22 @@ const CostosTable = () => {
       }
 
       // SEGUNDO: Generar enlace usando el ID de la cotización
-      const approvalUrl = `${window.location.origin}${window.location.pathname}?approval_id=${savedQuote.cotizacion_id}`
+      const approvalUrl = `${APP_BASE_URL}?approval_id=${savedQuote.cotizacion_id}`
       
-      setGeneratedLink(approvalUrl)
+      // TERCERO: Generar mensaje de seguridad con PIN
+      const securityMessage = generateSecurityMessage(savedQuote.securityPin.pin, clienteName)
+      const fullMessage = `
+🔗 ENLACE DE APROBACIÓN:
+${approvalUrl}
+
+${securityMessage}
+      `.trim()
+      
+      setGeneratedLink(fullMessage)
       setShowApprovalLink(true)
       
       console.log('✅ Cotización guardada en BD y enlace generado:', approvalUrl)
+      console.log('🔐 PIN de seguridad:', savedQuote.securityPin.pin)
       console.log('📊 ID de BD:', savedQuote.id, 'ID de Cotización:', savedQuote.cotizacion_id)
       
       // Actualizar estado de edición si es necesario
@@ -536,49 +956,118 @@ const CostosTable = () => {
     })
   }
 
-  const handleApproval = async (approved, reason = '') => {
+  const handleApproval = async (approved) => {
     if (!approvalQuote) return
 
-    const status = approved ? 'approved' : 'denied'
-    const message = generateWhatsAppMessage(approvalQuote.cotizacion_id, status, reason)
-    
-    try {
-      // Buscar y actualizar la cotización en la base de datos
-      const existingQuote = await getCotizacionById(approvalQuote.cotizacion_id)
+    console.log('🔄 [DEBUG] Iniciando proceso de aprobación')
+    console.log('📋 [DEBUG] approvalQuote:', approvalQuote)
+    console.log('📋 [DEBUG] approvalQuote.cotizacion_id:', approvalQuote.cotizacion_id)
+
+    let updatedQuote = { ...approvalQuote }
+
+    if (approved) {
+      // APROBACIÓN: Verificar que se hayan seleccionado opciones
+      const groupedRows = getGroupedApprovalRows(approvalQuote.rows)
+      const hasAllSelections = groupedRows.every(group => selectedOptions[group.item.id])
       
-      if (existingQuote) {
-        // Actualizar el estado de la cotización
-        await saveCotizacion({
-          ...existingQuote,
-          status: status,
-          approvalReason: reason,
-          approvalDate: new Date().toISOString(),
-          approvalDateFormatted: new Date().toLocaleString('es-CO')
-        })
-        
-        console.log(`✅ Cotización ${approvalQuote.cotizacion_id} ${status} y guardada en BD`)
-      } else {
-        // Si no existe en BD, crear una nueva entrada
-        await saveCotizacion({
-          ...approvalQuote,
-          status: status,
-          approvalReason: reason,
-          approvalDate: new Date().toISOString(),
-          approvalDateFormatted: new Date().toLocaleString('es-CO')
-        })
-        
-        console.log(`✅ Cotización ${approvalQuote.cotizacion_id} ${status} y creada en BD`)
+      if (!hasAllSelections) {
+        alert('Por favor selecciona una opción para cada producto antes de aprobar.')
+        return
       }
-    } catch (error) {
-      console.error('❌ Error guardando estado de aprobación:', error)
-      // Continuar con el flujo aunque falle el guardado
+
+      // Crear filas finales con solo las opciones seleccionadas
+      const selectedRows = []
+      groupedRows.forEach(group => {
+        const selectedRowId = selectedOptions[group.item.id]
+        const selectedRow = group.options.find(row => row.id === selectedRowId)
+        if (selectedRow) {
+          selectedRows.push(selectedRow)
+        }
+      })
+
+      // Calcular nuevo total
+      const newTotal = selectedRows.reduce((sum, row) => sum + (row.pvpTotal || 0), 0)
+
+      // Actualizar cotización con opciones seleccionadas
+      updatedQuote = {
+        ...approvalQuote,
+        rows: selectedRows,
+        totalGeneral: newTotal,
+        status: 'approved',
+        selectedOptions: selectedOptions,
+        itemComments: itemComments,
+        approvalDate: new Date().toISOString(),
+        approvalDateFormatted: new Date().toLocaleString('es-CO')
+      }
+
+      console.log('✅ Cotización aprobada con opciones seleccionadas')
+
+    } else {
+      // RE-COTIZACIÓN: Recopilar comentarios
+      const groupedRows = getGroupedApprovalRows(approvalQuote.rows)
+      const hasComments = Object.values(itemComments).some(comment => comment && comment.trim())
+      
+      if (!hasComments) {
+        alert('Por favor añade comentarios específicos para orientar la re-cotización.')
+        return
+      }
+
+      // Actualizar cotización con comentarios
+      updatedQuote = {
+        ...approvalQuote,
+        status: 'revision_requested',
+        itemComments: itemComments,
+        revisionDate: new Date().toISOString(),
+        revisionDateFormatted: new Date().toLocaleString('es-CO')
+      }
+
+      console.log('🔄 Re-cotización solicitada con comentarios')
     }
     
-    console.log(`📋 Cotización ${approvalQuote.cotizacion_id} ${status}:`, reason)
+    try {
+      // Guardar en base de datos (Firebase + IndexedDB)
+      console.log('🔍 [DEBUG] Buscando cotización existente con ID:', approvalQuote.cotizacion_id)
+      const existingQuote = await getCotizacionById(approvalQuote.cotizacion_id)
+      console.log('📋 [DEBUG] Cotización encontrada:', existingQuote)
+      
+      if (existingQuote) {
+        // ACTUALIZAR cotización existente - mantener el ID para evitar duplicados
+        await saveCotizacion({
+          id: existingQuote.id, // ✅ Mantener ID para actualizar, no crear nuevo
+          ...existingQuote,
+          ...updatedQuote,
+          // Asegurar que no se pierdan campos críticos
+          cotizacion_id: existingQuote.cotizacion_id,
+          date: existingQuote.date,
+          dateFormatted: existingQuote.dateFormatted,
+          createdAt: existingQuote.createdAt,
+          updatedAt: new Date().toISOString()
+        })
+        console.log('✅ Cotización existente actualizada con ID:', existingQuote.id)
+      } else {
+        await saveCotizacion(updatedQuote)
+        console.log('✅ Nueva cotización creada')
+      }
+      
+      console.log(`✅ Cotización ${approvalQuote.cotizacion_id} ${approved ? 'aprobada' : 'enviada a revisión'} - guardada en Firebase`)
+      
+      // Mostrar mensaje de éxito
+      alert(approved 
+        ? '✅ Cotización aprobada correctamente. El vendedor será notificado automáticamente.' 
+        : '🔄 Solicitud de re-cotización enviada. El vendedor será notificado automáticamente.'
+      )
+      
+    } catch (error) {
+      console.error('❌ Error guardando estado:', error)
+      alert('❌ Error al procesar la respuesta. Por favor intenta de nuevo.')
+      return
+    }
     
-    openWhatsApp(message)
+    // Limpiar estados
     setShowApprovalView(false)
     setApprovalQuote(null)
+    setSelectedOptions({})
+    setItemComments({})
   }
 
   // Función para exportar PDF DETALLADO con diseño intuitivo
@@ -944,8 +1433,63 @@ const CostosTable = () => {
   }
 
   // Componente de celda editable independiente
-  const EditableCell = ({ value, onChange, type = 'text', className = '', minWidth = '120px' }) => {
+  const EditableCell = ({ value, onChange, type = 'text', className = '', minWidth = '120px', multiline = false }) => {
     const [localValue, handleChange, handleFocus, handleBlur] = useIndependentInput(value, onChange)
+    
+    // Determinar alineación según el tipo
+    const textAlign = type === 'text' ? 'left' : 'center'
+    
+    // Si está en modo solo lectura, mostrar solo el valor
+    if (isReadOnlyMode) {
+      return (
+        <div
+          style={{ 
+            minWidth,
+            width: '100%',
+            padding: '4px 8px',
+            textAlign,
+            fontSize: '12px',
+            lineHeight: multiline ? '1.3' : '1',
+            minHeight: multiline ? '32px' : 'auto'
+          }}
+          className={cn(
+            'bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded overflow-visible',
+            multiline ? 'whitespace-pre-wrap' : 'whitespace-nowrap',
+            className
+          )}
+        >
+          {value || '-'}
+        </div>
+      )
+    }
+    
+    // Si es multiline, usar textarea
+    if (multiline) {
+      return (
+        <textarea
+          value={localValue}
+          onChange={(e) => handleChange(e.target.value)}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          autoComplete="off"
+          rows={2}
+          style={{ 
+            minWidth,
+            width: '100%',
+            padding: '4px 8px',
+            textAlign,
+            border: 'none',
+            background: 'transparent',
+            outline: 'none',
+            fontSize: '12px',
+            resize: 'none',
+            lineHeight: '1.3',
+            minHeight: '32px'
+          }}
+          className={cn('overflow-visible', className)}
+        />
+      )
+    }
     
     return (
       <input
@@ -959,13 +1503,13 @@ const CostosTable = () => {
           minWidth,
           width: '100%',
           padding: '4px 8px',
-          textAlign: 'center',
+          textAlign,
           border: 'none',
           background: 'transparent',
           outline: 'none',
-          fontSize: '14px'
+          fontSize: '12px'
         }}
-        className={className}
+        className={cn('overflow-visible whitespace-nowrap', className)}
       />
     )
   }
@@ -1029,11 +1573,11 @@ const CostosTable = () => {
       initial={{ opacity: 0, height: 0 }}
       animate={{ opacity: 1, height: 'auto' }}
       exit={{ opacity: 0, height: 0 }}
-      className="mb-3"
+      className="mb-3 relative z-0"
     >
       <div 
         onClick={onExpand}
-        className="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg p-4 shadow-sm cursor-pointer hover:shadow-md transition-all duration-200"
+        className="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg p-4 shadow-sm cursor-pointer hover:shadow-md transition-all duration-200 relative z-0"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -1070,8 +1614,9 @@ const CostosTable = () => {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
       transition={{ duration: 0.3 }}
+      className="relative z-0"
     >
-      <Card className="mb-6 border-2 border-gray-200 dark:border-gray-700 shadow-xl">
+      <Card className="mb-6 border-2 border-gray-200 dark:border-gray-700 shadow-xl relative z-0">
         <CardContent className="p-4 sm:p-6">
           {/* Header con gradiente */}
           <div className="flex justify-between items-center mb-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
@@ -1091,6 +1636,7 @@ const CostosTable = () => {
                 </svg>
               </Button>
               {/* Botón eliminar */}
+              {!isReadOnlyMode && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -1100,6 +1646,7 @@ const CostosTable = () => {
               >
                 <X className="h-4 w-4" />
               </Button>
+              )}
             </div>
           </div>
           
@@ -1296,6 +1843,21 @@ const CostosTable = () => {
               className="text-2xl lg:text-3xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent flex-shrink-0"
             >
               📊 Cuadro de Costos
+        {itemBasedMode && currentItem && !isReadOnlyMode && (
+          <span className="text-sm font-normal text-gray-600 dark:text-gray-400 ml-2 block lg:inline">
+            📦 {currentItem.name}
+          </span>
+        )}
+        {isReadOnlyMode && editingQuote.status === 'approved' && (
+          <span className="text-sm font-normal text-green-600 dark:text-green-400 ml-2 block lg:inline">
+            ✅ Cotización Aprobada - Solo Lectura
+          </span>
+        )}
+        {isReadOnlyMode && editingQuote.status === 'denied' && (
+          <span className="text-sm font-normal text-red-600 dark:text-red-400 ml-2 block lg:inline">
+            ❌ Cotización Denegada - Solo Lectura
+          </span>
+        )}
             </motion.h1>
             
             <Button
@@ -1567,7 +2129,7 @@ const CostosTable = () => {
                     onClick={isOnline ? forceSync : undefined}
                     title={isOnline ? 'Click para sincronizar' : 'Sin conexión'}
                   >
-                    <div className="w-2 h-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full animate-pulse"></div>
+                <div className="w-2 h-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full animate-pulse"></div>
                     <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
                       {syncStats.pending > 0 
                         ? `📤 ${syncStats.pending} pendientes`
@@ -1651,56 +2213,184 @@ const CostosTable = () => {
         </motion.div>
       )}
 
+      {/* Resumen de Aprobación - Solo para cotizaciones aprobadas/denegadas */}
+      {isReadOnlyMode && (() => {
+        const summary = getApprovalSummary()
+        if (!summary) return null
+
+        return (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className={`mx-4 mb-6 p-6 rounded-xl shadow-xl border-2 ${
+              editingQuote.status === 'approved' 
+                ? 'bg-green-50 dark:bg-green-900/20 border-green-500 dark:border-green-700'
+                : 'bg-red-50 dark:bg-red-900/20 border-red-500 dark:border-red-700'
+            }`}
+          >
+            <div className="text-center mb-6">
+              <h2 className={`text-2xl font-bold mb-2 ${
+                editingQuote.status === 'approved' 
+                  ? 'text-green-800 dark:text-green-200'
+                  : 'text-red-800 dark:text-red-200'
+              }`}>
+                {editingQuote.status === 'approved' ? '✅ RESUMEN DE APROBACIÓN' : '❌ RESUMEN DE DENEGACIÓN'}
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400">
+                {editingQuote.approvalDateFormatted || editingQuote.revisionDateFormatted}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Opciones Aprobadas */}
+              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-green-200 dark:border-green-700">
+                <h3 className="text-lg font-semibold text-green-700 dark:text-green-300 mb-2">
+                  ✅ Aprobadas
+                </h3>
+                <div className="space-y-1">
+                  <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                    {summary.approved.count}
+                  </div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">opciones</div>
+                  <div className="text-lg font-semibold text-green-700 dark:text-green-300">
+                    {formatCurrency(summary.approved.total)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Opciones Rechazadas */}
+              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-red-200 dark:border-red-700">
+                <h3 className="text-lg font-semibold text-red-700 dark:text-red-300 mb-2">
+                  ❌ No Aprobadas
+                </h3>
+                <div className="space-y-1">
+                  <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+                    {summary.rejected.count}
+                  </div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">opciones</div>
+                  <div className="text-lg font-semibold text-red-700 dark:text-red-300">
+                    {formatCurrency(summary.rejected.total)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Total y Ahorro */}
+              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-blue-200 dark:border-blue-700">
+                <h3 className="text-lg font-semibold text-blue-700 dark:text-blue-300 mb-2">
+                  💰 Resumen
+                </h3>
+                <div className="space-y-2">
+                  <div>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">Total Original:</span>
+                    <div className="font-semibold text-gray-700 dark:text-gray-300">
+                      {formatCurrency(summary.originalTotal)}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">Total Aprobado:</span>
+                    <div className="font-bold text-lg text-green-600 dark:text-green-400">
+                      {formatCurrency(summary.approved.total)}
+                    </div>
+                  </div>
+                  {summary.savings > 0 && (
+                    <div>
+                      <span className="text-sm text-gray-500 dark:text-gray-400">Ahorro:</span>
+                      <div className="font-semibold text-orange-600 dark:text-orange-400">
+                        -{formatCurrency(summary.savings)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )
+      })()}
+
       {/* Contenido Principal */}
-      <div className="w-full px-4 py-8">
-        <Card className="shadow-xl border-0 bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm w-full">
-          <CardContent className="p-6">
-                        {/* Tabla Desktop con scroll horizontal y columnas fijas */}
-            <div className="hidden lg:block overflow-x-auto">
-              <table className="min-w-full table-auto">
+      <div className="w-full px-1 py-4">
+        <Card className="shadow-xl border-0 bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm w-full overflow-visible">
+          <CardContent className="p-2 overflow-visible">
+                        {/* Tabla Desktop Optimizada - Todas las columnas visibles */}
+            <div className="hidden lg:block overflow-x-auto overflow-y-visible">
+              <table className="w-full text-xs leading-tight" style={{tableLayout: 'auto', minWidth: '1500px'}}>
                 <thead>
                   <tr className="border-b-2 border-gray-200 dark:border-gray-700">
-                    {/* Columnas fijas */}
-                    <th className="sticky left-0 z-10 p-4 text-center font-semibold text-xs w-20 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 border-r-2 border-r-gray-400 dark:border-r-gray-500">ITEM</th>
-                    <th className="sticky left-20 z-10 p-4 text-center font-semibold text-xs w-24 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 border-r-2 border-r-gray-400 dark:border-r-gray-500">CANT.</th>
-                    <th className="sticky left-44 z-10 p-4 text-left font-semibold text-xs w-48 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 border-r-2 border-r-gray-400 dark:border-r-gray-500">PROVEEDOR</th>
+                    {/* Todas las columnas optimizadas */}
+                    <th className="p-1 text-center font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">ITEM</th>
+                    <th className="p-1 text-center font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">CANT.</th>
+                    <th className="p-1 text-left font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">PROVEEDOR</th>
                     
-                    {/* Columnas con scroll */}
-                    <th className="p-4 text-left font-semibold text-xs w-36 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">MARCA</th>
-                    <th className="p-4 text-left font-semibold text-xs w-40 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">REFERENCIA</th>
-                    <th className="p-4 text-left font-semibold text-xs w-48 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">CONFIGURACIÓN</th>
-                    <th className="p-4 text-center font-semibold text-xs w-32 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">COSTO USD</th>
-                    <th className="p-4 text-center font-semibold text-xs w-24 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">TRM</th>
-                    <th className="p-4 text-center font-semibold text-xs w-32 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">COSTO COP</th>
-                    <th className="p-4 text-center font-semibold text-xs w-24 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">IVA %</th>
-                    <th className="p-4 text-center font-semibold text-xs w-32 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">VALOR IVA</th>
-                    <th className="p-4 text-center font-semibold text-xs w-32 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">COSTO+IVA</th>
-                    <th className="p-4 text-center font-semibold text-xs w-32 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">COSTO TOTAL</th>
-                    <th className="p-4 text-center font-semibold text-xs w-28 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">MARGEN %</th>
-                    <th className="p-4 text-center font-semibold text-xs w-32 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">PVP UNIT.</th>
-                    <th className="p-4 text-center font-semibold text-xs w-24 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">IVA PVP %</th>
-                    <th className="p-4 text-center font-semibold text-xs w-32 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">IVA PVP</th>
-                    <th className="p-4 text-center font-semibold text-xs w-32 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">PVP+IVA</th>
-                    <th className="p-4 text-center font-semibold text-xs w-32 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">PVP TOTAL</th>
-                    <th className="p-4 text-center font-semibold text-xs w-24 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">ACCIONES</th>
+                    {/* Todas las columnas con tamaño reducido */}
+                    <th className="p-1 text-left font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">MARCA</th>
+                    <th className="p-1 text-left font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">REF.</th>
+                    <th className="p-1 text-left font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">CONFIG.</th>
+                    <th className="p-1 text-center font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">USD</th>
+                    <th className="p-1 text-center font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">+USD</th>
+                    <th className="p-1 text-center font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">TRM</th>
+                    <th className="p-1 text-center font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">COP</th>
+                    <th className="p-1 text-center font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">IVA%</th>
+                    <th className="p-1 text-center font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">V.IVA</th>
+                    <th className="p-1 text-center font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">C+IVA</th>
+                    <th className="p-1 text-center font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">C.TOT</th>
+                    <th className="p-1 text-center font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">MAR%</th>
+                    <th className="p-1 text-center font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">PVP.U</th>
+                    <th className="p-1 text-center font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">IVA%</th>
+                    <th className="p-1 text-center font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">V.IVA</th>
+                    <th className="p-1 text-center font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">PVP+I</th>
+                    <th className="p-1 text-center font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">TOTAL</th>
+                    <th className="p-1 text-center font-semibold text-xs bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">ACC</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.id} className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50/50 dark:hover:bg-gray-700/30">
-                      {/* Columnas fijas */}
-                      <td className="sticky left-0 z-10 p-4 text-center font-medium text-blue-600 dark:text-blue-400 w-20 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 border-r-2 border-r-gray-400 dark:border-r-gray-500">
+                  {getGroupedRows().map((group, groupIndex) => (
+                    <React.Fragment key={group.item.id}>
+                      {/* Header del ítem */}
+                      <tr className="bg-blue-50 dark:bg-blue-900/20 border-b-2 border-blue-200 dark:border-blue-700">
+                        <td colSpan="17" className="p-4 font-semibold text-blue-800 dark:text-blue-200 text-sm border border-gray-300 dark:border-gray-600">
+                          <div className="flex items-center gap-2">
+                            <Package className="w-4 h-4" />
+                            <span className="font-bold">{group.item.name}</span>
+                            {group.item.description && (
+                              <span className="text-blue-600 dark:text-blue-300 font-normal">
+                                - {group.item.description}
+                              </span>
+                            )}
+                            <span className="ml-auto flex items-center gap-3">
+                              <span className="text-xs text-blue-600 dark:text-blue-400">
+                                {group.options.length} opción{group.options.length !== 1 ? 'es' : ''}
+                              </span>
+                              {!isReadOnlyMode && (
+                                <button
+                                  onClick={() => addNewItemOption(group.item)}
+                                  className="h-8 w-8 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition-all duration-200 hover:scale-110 shadow-md"
+                                  title={`Añadir opción para: ${group.item.name}`}
+                                >
+                                  <Plus className="h-4 w-4" />
+                                </button>
+                              )}
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                      
+                      {/* Opciones del ítem */}
+                      {group.options.map((row, optionIndex) => (
+                    <tr key={row.id} className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50/50 dark:hover:bg-gray-700/30" style={{minHeight: '40px'}}>
+                      {/* Todas las columnas optimizadas */}
+                      <td className="p-0.5 text-center font-medium text-blue-600 dark:text-blue-400 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600" style={{verticalAlign: 'top'}}>
                         {row.item}
                       </td>
-                      <td className="sticky left-20 z-10 p-3 w-24 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 border-r-2 border-r-gray-400 dark:border-r-gray-500">
+                      <td className="p-0.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600" style={{verticalAlign: 'top'}}>
                         <EditableCell 
                           type="number"
                           value={row.cantidad}
                           onChange={(value) => updateRow(row.id, 'cantidad', Math.max(1, parseNumber(value)))}
-                          minWidth="100%"
+                          minWidth="60px"
                         />
                       </td>
-                      <td className="sticky left-44 z-10 p-3 w-48 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 border-r-2 border-r-gray-400 dark:border-r-gray-500">
+                      <td className="p-0.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600">
                         <ProviderAutocomplete
                           value={row.mayorista}
                           onChange={(value, provider) => {
@@ -1708,136 +2398,179 @@ const CostosTable = () => {
                             // Aquí podrías guardar información adicional del proveedor si es necesario
                           }}
                           placeholder="Proveedor..."
-                          className="w-full"
+                          className="w-full min-w-[150px] whitespace-nowrap"
                           showImage={true}
                           maxSuggestions={3}
                         />
                       </td>
                       
-                      {/* Columnas con scroll */}
-                      <td className="p-3 w-36 border border-gray-300 dark:border-gray-600">
+                      {/* Todas las columnas con padding reducido */}
+                      <td className="p-0.5 border border-gray-300 dark:border-gray-600" style={{verticalAlign: 'top'}}>
                         <EditableCell 
                           type="text"
                           value={row.marca}
                           onChange={(value) => updateRow(row.id, 'marca', value)}
-                          minWidth="100%"
+                          minWidth="120px"
+                          className="whitespace-nowrap"
                         />
                       </td>
-                      <td className="p-3 w-40 border border-gray-300 dark:border-gray-600">
+                      <td className="p-0.5 border border-gray-300 dark:border-gray-600" style={{minHeight: '40px', verticalAlign: 'top'}}>
                         <EditableCell 
                           type="text"
                           value={row.referencia}
                           onChange={(value) => updateRow(row.id, 'referencia', value)}
-                          minWidth="100%"
+                          minWidth="150px"
+                          multiline={true}
                         />
                       </td>
-                      <td className="p-3 w-48 border border-gray-300 dark:border-gray-600">
+                      <td className="p-0.5 border border-gray-300 dark:border-gray-600" style={{minHeight: '40px', verticalAlign: 'top'}}>
                         <EditableCell 
                           type="text"
                           value={row.configuracion}
                           onChange={(value) => updateRow(row.id, 'configuracion', value)}
-                          minWidth="100%"
+                          minWidth="200px"
+                          multiline={true}
                         />
                       </td>
-                      <td className="p-3 w-32 border border-gray-300 dark:border-gray-600">
+                      <td className="p-0.5 border border-gray-300 dark:border-gray-600" style={{verticalAlign: 'top'}}>
                         <EditableCell 
                           type="number"
                           value={row.costoUSD}
                           onChange={(value) => updateRow(row.id, 'costoUSD', Math.max(0, parseNumber(value)))}
-                          minWidth="100%"
+                          minWidth="80px"
                         />
                       </td>
-                      <td className="p-3 w-24 border border-gray-300 dark:border-gray-600">
+                      <td className="p-0.5 text-center border border-gray-300 dark:border-gray-600" style={{verticalAlign: 'top'}}>
+                        {!isReadOnlyMode ? (
+                          <button
+                            onClick={() => openAdditionalCostsModal(row)}
+                            className="w-full h-full min-h-[28px] text-xs bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 text-green-700 dark:text-green-400 hover:from-green-100 hover:to-blue-100 dark:hover:from-green-900/30 dark:hover:to-blue-900/30 border border-green-300 dark:border-green-700 rounded-lg transition-all duration-200 flex items-center justify-center gap-1 font-medium shadow-sm hover:shadow-md"
+                            title="Añadir/Gestionar costos adicionales"
+                          >
+                            {(row.additionalCosts && row.additionalCosts.length > 0) ? (
+                              <div className="flex flex-col items-center leading-tight">
+                                <span className="text-xs">💰 {row.additionalCosts.length}</span>
+                                <span className="text-xs font-bold">
+                                  {row.additionalCostUSD > 0 ? `+$${row.additionalCostUSD.toFixed(0)}` : '+$0'}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1">
+                                <Plus className="w-3 h-3" />
+                                <span>Costo</span>
+                              </div>
+                            )}
+                          </button>
+                        ) : (
+                          <div className="text-center">
+                            {(row.additionalCosts && row.additionalCosts.length > 0) ? (
+                              <div className="flex flex-col items-center text-green-600 dark:text-green-400">
+                                <span className="text-xs">💰 {row.additionalCosts.length}</span>
+                                <span className="text-xs font-bold">
+                                  +${row.additionalCostUSD.toFixed(0)}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-gray-400">-</span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-0.5 border border-gray-300 dark:border-gray-600" style={{verticalAlign: 'top'}}>
                         <EditableCell 
                           type="number"
                           value={row.trm}
                           onChange={(value) => updateRow(row.id, 'trm', Math.max(0, parseNumber(value)))}
-                          minWidth="100%"
+                          minWidth="80px"
                         />
                       </td>
-                      <td className="p-3 w-32 border border-gray-300 dark:border-gray-600">
-                        <EditableCell 
-                          type="number"
-                          value={row.costoCOP}
-                          onChange={(value) => updateRow(row.id, 'costoCOP', Math.max(0, parseNumber(value)))}
-                          minWidth="100%"
-                        />
+                      <td className="p-0.5 text-center border border-gray-300 dark:border-gray-600 bg-blue-50 dark:bg-blue-900/20 min-w-[100px]" style={{verticalAlign: 'top'}}>
+                        <span className="font-semibold text-blue-700 dark:text-blue-300 text-xs leading-none whitespace-nowrap">
+                          {formatCurrency(row.costoCOP)}
+                        </span>
                       </td>
-                      <td className="p-3 w-24 border border-gray-300 dark:border-gray-600">
+                      <td className="p-0.5 border border-gray-300 dark:border-gray-600" style={{verticalAlign: 'top'}}>
                         <EditableCell 
                           type="number"
                           value={row.ivaPercentCosto}
                           onChange={(value) => updateRow(row.id, 'ivaPercentCosto', Math.max(0, parseNumber(value)))}
-                          minWidth="100%"
+                          minWidth="50px"
                         />
                       </td>
-                      <td className="p-4 text-center font-medium text-red-600 dark:text-red-400 w-32 border border-gray-300 dark:border-gray-600">
-                        <div className="whitespace-nowrap">
+                      <td className="p-0.5 text-center border border-gray-300 dark:border-gray-600 bg-blue-50 dark:bg-blue-900/20 min-w-[100px]" style={{verticalAlign: 'top'}}>
+                        <span className="font-semibold text-blue-700 dark:text-blue-300 text-xs leading-none whitespace-nowrap">
                           {formatCurrency(row.valorIvaCosto)}
-                        </div>
+                        </span>
                       </td>
-                      <td className="p-4 text-center font-medium text-orange-600 dark:text-orange-400 w-32 border border-gray-300 dark:border-gray-600">
-                        <div className="whitespace-nowrap">
+                      <td className="p-0.5 text-center border border-gray-300 dark:border-gray-600 bg-blue-50 dark:bg-blue-900/20 min-w-[100px]" style={{verticalAlign: 'top'}}>
+                        <span className="font-semibold text-blue-700 dark:text-blue-300 text-xs leading-none whitespace-nowrap">
                           {formatCurrency(row.costoConIva)}
-                        </div>
+                        </span>
                       </td>
-                      <td className="p-4 text-center font-medium text-purple-600 dark:text-purple-400 w-32 border border-gray-300 dark:border-gray-600">
-                        <div className="whitespace-nowrap">
+                      <td className="p-0.5 text-center border border-gray-300 dark:border-gray-600 bg-blue-50 dark:bg-blue-900/20 min-w-[100px]" style={{verticalAlign: 'top'}}>
+                        <span className="font-semibold text-blue-700 dark:text-blue-300 text-xs leading-none whitespace-nowrap">
                           {formatCurrency(row.costoTotal)}
-                        </div>
+                        </span>
                       </td>
-                      <td className="p-3 w-28 border border-gray-300 dark:border-gray-600">
+                      <td className="p-0.5 border border-gray-300 dark:border-gray-600" style={{verticalAlign: 'top'}}>
                         <EditableCell 
                           type="number"
                           value={row.margen}
                           onChange={(value) => updateRow(row.id, 'margen', Math.max(0, parseNumber(value)))}
-                          minWidth="100%"
+                          minWidth="50px"
                         />
                       </td>
-                      <td className="p-4 text-center font-medium text-green-600 dark:text-green-400 w-32 border border-gray-300 dark:border-gray-600">
-                        <div className="whitespace-nowrap">
+                      <td className="p-0.5 text-center border border-gray-300 dark:border-gray-600 bg-green-50 dark:bg-green-900/20 min-w-[100px]" style={{verticalAlign: 'top'}}>
+                        <span className="font-semibold text-green-700 dark:text-green-300 text-xs leading-none whitespace-nowrap">
                           {formatCurrency(row.pvpUnitario)}
-                        </div>
+                        </span>
                       </td>
-                      <td className="p-3 w-24 border border-gray-300 dark:border-gray-600">
+                      <td className="p-0.5 border border-gray-300 dark:border-gray-600" style={{verticalAlign: 'top'}}>
                         <EditableCell 
                           type="number"
                           value={row.ivaPercentPVP}
                           onChange={(value) => updateRow(row.id, 'ivaPercentPVP', Math.max(0, parseNumber(value)))}
-                          minWidth="100%"
+                          minWidth="50px"
                         />
                       </td>
-                      <td className="p-4 text-center font-medium text-blue-600 dark:text-blue-400 w-32 border border-gray-300 dark:border-gray-600">
-                        <div className="whitespace-nowrap">
+                      <td className="p-0.5 text-center border border-gray-300 dark:border-gray-600 bg-green-50 dark:bg-green-900/20 min-w-[100px]" style={{verticalAlign: 'top'}}>
+                        <span className="font-semibold text-green-700 dark:text-green-300 text-xs leading-none whitespace-nowrap">
                           {formatCurrency(row.valorIvaPVP)}
-                        </div>
+                        </span>
                       </td>
-                      <td className="p-4 text-center font-medium text-indigo-600 dark:text-indigo-400 w-32 border border-gray-300 dark:border-gray-600">
-                        <div className="whitespace-nowrap">
+                      <td className="p-0.5 text-center border border-gray-300 dark:border-gray-600 bg-green-50 dark:bg-green-900/20 min-w-[100px]" style={{verticalAlign: 'top'}}>
+                        <span className="font-semibold text-green-700 dark:text-green-300 text-xs leading-none whitespace-nowrap">
                           {formatCurrency(row.pvpMasIva)}
-                        </div>
+                        </span>
                       </td>
-                      <td className="p-4 text-center font-bold text-green-700 dark:text-green-300 w-32 border border-gray-300 dark:border-gray-600">
-                        <div className="whitespace-nowrap">
+                      <td className="p-0.5 text-center border border-gray-300 dark:border-gray-600 bg-green-50 dark:bg-green-900/20 min-w-[100px]" style={{verticalAlign: 'top'}}>
+                        <span className="font-bold text-xs text-green-700 dark:text-green-300 leading-none whitespace-nowrap">
                           {formatCurrency(row.pvpTotal)}
-                        </div>
+                        </span>
                       </td>
-                      <td className="p-4 text-center w-24 border border-gray-300 dark:border-gray-600">
+                      <td className="p-0.5 text-center border border-gray-300 dark:border-gray-600" style={{verticalAlign: 'top'}}>
+                        {!isReadOnlyMode && (
                         <button
                           onClick={() => deleteRow(row.id)}
-                          className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-xl transition-colors"
+                            className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-xs transition-colors leading-none"
                         >
                           ❌
                         </button>
+                        )}
                       </td>
                     </tr>
+                      ))}
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
             </div>
                 
+                {/* Espaciado normal */}
+                <div className="h-6"></div>
+                
                 {/* Pie de tabla con totales */}
-                <div className="border-t-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-4 flex justify-between items-center">
+                <div className="border-t-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-4 flex justify-between items-center z-1 mt-4">
                   <div className="text-right font-bold text-lg">
                     TOTAL VENTA: <span className="text-green-600 dark:text-green-400 text-xl">{formatCurrency(totalVenta)}</span>
                   </div>
@@ -1866,7 +2599,7 @@ const CostosTable = () => {
 
 
             {/* Cards Mobile con colapso */}
-            <div className="lg:hidden">
+            <div className="lg:hidden relative z-0">
               {/* Botones de control de colapso */}
               {rows.length > 1 && (
                 <div className="mb-4 flex gap-2">
@@ -1890,7 +2623,41 @@ const CostosTable = () => {
               )}
               
               <AnimatePresence>
-                {rows.map((row, index) => {
+                {getGroupedRows().map((group, groupIndex) => (
+                  <div key={group.item.id} className="mb-6">
+                    {/* Header del ítem en móvil */}
+                    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4 mb-3">
+                      <div className="flex items-center gap-2">
+                        <Package className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                        <div className="flex-1">
+                          <h3 className="font-bold text-blue-800 dark:text-blue-200 text-base">
+                            {group.item.name}
+                          </h3>
+                          {group.item.description && (
+                            <p className="text-blue-600 dark:text-blue-300 text-sm">
+                              {group.item.description}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30 px-2 py-1 rounded-full">
+                            {group.options.length} opción{group.options.length !== 1 ? 'es' : ''}
+                          </span>
+                          {!isReadOnlyMode && (
+                            <button
+                              onClick={() => addNewItemOption(group.item)}
+                              className="h-8 w-8 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition-all duration-200 hover:scale-110 shadow-md"
+                              title={`Añadir opción para: ${group.item.name}`}
+                            >
+                              <Plus className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Opciones del ítem */}
+                    {group.options.map((row, optionIndex) => {
                   const isCollapsed = collapsedItems.has(row.id)
                   
                   if (isCollapsed) {
@@ -1898,20 +2665,25 @@ const CostosTable = () => {
                       <CollapsedMobileCard 
                         key={`collapsed-${row.id}`}
                         row={row} 
-                        index={index}
+                            index={optionIndex}
                         onExpand={() => toggleItemCollapse(row.id)}
                       />
                     )
                   }
                   
                   return (
-                    <MobileCard key={row.id} row={row} index={index} />
+                        <MobileCard key={row.id} row={row} index={optionIndex} />
                   )
                 })}
+                  </div>
+                ))}
               </AnimatePresence>
               
+              {/* Espaciado normal móvil */}
+              <div className="h-8"></div>
+              
               {/* Resumen Mobile */}
-              <Card className="bg-gray-50 dark:bg-gray-800 border-2">
+              <Card className="bg-gray-50 dark:bg-gray-800 border-2 mt-4">
                 <CardContent className="p-4">
                   <div className="text-center">
                     <div className="text-lg font-bold mb-2">TOTAL VENTA</div>
@@ -1948,20 +2720,27 @@ const CostosTable = () => {
           </CardContent>
         </Card>
 
-        {/* Botón flotante para agregar fila */}
+                {/* Botón flotante - Solo si no está en modo solo lectura */}
+        {!isReadOnlyMode && (
         <motion.div
           className="fixed bottom-6 right-6 z-40"
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
         >
           <Button
-            onClick={addRow}
+              onClick={itemBasedMode ? addNewItem : addRow}
             size="icon"
-            className="h-14 w-14 rounded-full shadow-lg bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
-          >
-            <Plus className="h-6 w-6" />
+              className={`h-14 w-14 rounded-full shadow-lg ${
+                itemBasedMode
+                  ? "bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700"
+                  : "bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
+              }`}
+              title={itemBasedMode ? "Añadir nuevo producto" : "Agregar nueva fila"}
+            >
+              {itemBasedMode ? <Package className="h-6 w-6" /> : <Plus className="h-6 w-6" />}
           </Button>
         </motion.div>
+        )}
       </div>
 
       {/* Modal para Enlace de Aprobación */}
@@ -2012,12 +2791,7 @@ const CostosTable = () => {
                   >
                     📋 Copiar Enlace
                   </Button>
-                  <Button
-                    onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent('🏢 Nueva cotización para aprobar:\n\n' + generatedLink)}`, '_blank')}
-                    className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white flex-1"
-                  >
-                    📱 Enviar por WhatsApp
-                  </Button>
+                  {/* Botón eliminado - ya no usamos WhatsApp */}
                 </div>
 
                 <div className="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg border border-blue-200 dark:border-blue-700">
@@ -2027,7 +2801,7 @@ const CostosTable = () => {
                   <ul className="text-sm text-blue-700 dark:text-blue-400 space-y-1">
                     <li>• El receptor podrá ver toda la cotización</li>
                     <li>• Tendrá opciones para Aprobar o Denegar</li>
-                    <li>• Recibirás la respuesta por WhatsApp automáticamente</li>
+                    <li>• Recibirás la respuesta automáticamente en tiempo real</li>
                     <li>• El enlace es seguro y contiene toda la información encriptada</li>
                   </ul>
                 </div>
@@ -2044,48 +2818,72 @@ const CostosTable = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-gradient-to-br from-orange-500 to-amber-500 z-50 overflow-auto"
+            className="fixed inset-0 bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 z-50 overflow-auto"
           >
-            <div className="min-h-screen p-4">
-              <div className="max-w-6xl mx-auto">
-                {/* Header de Aprobación */}
+            <div className="min-h-screen">
+              {/* Header Moderno */}
                 <motion.div
-                  initial={{ y: -20, opacity: 0 }}
+                initial={{ y: -50, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
-                  className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 mb-6"
-                >
-                  <div className="text-center">
-                    <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-200 mb-2">
-                      📋 REVISIÓN DE COTIZACIÓN
+                transition={{ duration: 0.6, ease: "easeOut" }}
+                className="relative bg-white/10 backdrop-blur-md border-b border-white/20 p-4 lg:p-6"
+              >
+                <div className="max-w-7xl mx-auto">
+                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                    {/* Título Principal */}
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
+                        <FileText className="w-6 h-6 text-white" />
+                      </div>
+                      <div>
+                        <h1 className="text-2xl lg:text-3xl font-bold text-white">
+                          Panel de Aprobación
                     </h1>
-                    <p className="text-gray-600 dark:text-gray-400 mb-4">
-                      Por favor revisa los detalles y decide si aprobar o denegar esta cotización
+                        <p className="text-blue-200 text-sm lg:text-base">
+                          Revisa y decide sobre esta cotización
                     </p>
-                    <div className="bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-900/30 dark:to-amber-900/30 p-4 rounded-lg border border-orange-200 dark:border-orange-700">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
-                        <div>
-                          <span className="text-sm text-gray-500 dark:text-gray-400">ID Cotización</span>
-                          <div className="font-bold text-lg text-orange-600 dark:text-orange-400">{approvalQuote.cotizacion_id}</div>
                         </div>
-                        <div>
-                          <span className="text-sm text-gray-500 dark:text-gray-400">Cliente</span>
-                          <div className="font-bold text-lg text-gray-800 dark:text-gray-200">{approvalQuote.clienteName}</div>
                         </div>
-                        <div>
-                          <span className="text-sm text-gray-500 dark:text-gray-400">Total</span>
-                          <div className="font-bold text-lg text-green-600 dark:text-green-400">{formatCurrency(approvalQuote.totalGeneral)}</div>
+
+                    {/* Información Rápida */}
+                    <div className="flex flex-wrap gap-3">
+                      <div className="bg-white/10 backdrop-blur-sm rounded-lg px-3 py-2 border border-white/20">
+                        <div className="text-xs text-blue-200">ID</div>
+                        <div className="font-mono font-semibold text-white text-sm">
+                          {approvalQuote.cotizacion_id.split('-')[1]?.slice(0, 8) || approvalQuote.cotizacion_id}
+                        </div>
+                      </div>
+                      <div className="bg-white/10 backdrop-blur-sm rounded-lg px-3 py-2 border border-white/20">
+                        <div className="text-xs text-blue-200">Vendedor</div>
+                        <div className="font-semibold text-white text-sm">
+                          {approvalQuote.vendorName || 'No especificado'}
+                        </div>
+                      </div>
+                      <div className="bg-white/10 backdrop-blur-sm rounded-lg px-3 py-2 border border-white/20">
+                        <div className="text-xs text-blue-200">Cliente</div>
+                        <div className="font-semibold text-white text-sm">
+                          {approvalQuote.clienteName}
+                        </div>
+                      </div>
+                      <div className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 backdrop-blur-sm rounded-lg px-3 py-2 border border-green-400/30">
+                        <div className="text-xs text-green-200">Total</div>
+                        <div className="font-bold text-green-300 text-sm">
+                          {formatCurrency(approvalQuote.totalGeneral)}
+                        </div>
                         </div>
                       </div>
                     </div>
                   </div>
                 </motion.div>
 
-                {/* Contenido de la Cotización */}
+              {/* Contenido Principal */}
+              <div className="max-w-7xl mx-auto p-4 lg:p-6 space-y-6">
+                {/* Productos con opciones para selección */}
                 <motion.div
-                  initial={{ y: 20, opacity: 0 }}
+                  initial={{ y: 30, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
-                  transition={{ delay: 0.2 }}
-                  className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 mb-6"
+                  transition={{ delay: 0.3, duration: 0.6 }}
+                  className="space-y-4"
                 >
                   <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-200 mb-4">
                     📊 Detalles de la Cotización
@@ -2111,81 +2909,486 @@ const CostosTable = () => {
                     </div>
                   </div>
 
-                  {/* Tabla de items */}
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse border border-gray-300 dark:border-gray-600">
-                      <thead>
-                        <tr className="bg-gray-50 dark:bg-gray-700">
-                          <th className="border border-gray-300 dark:border-gray-600 p-2 text-xs font-semibold">ITEM</th>
-                          <th className="border border-gray-300 dark:border-gray-600 p-2 text-xs font-semibold">CANTIDAD</th>
-                          <th className="border border-gray-300 dark:border-gray-600 p-2 text-xs font-semibold">PROVEEDOR</th>
-                          <th className="border border-gray-300 dark:border-gray-600 p-2 text-xs font-semibold">PRODUCTO</th>
-                          <th className="border border-gray-300 dark:border-gray-600 p-2 text-xs font-semibold">COSTO USD</th>
-                          <th className="border border-gray-300 dark:border-gray-600 p-2 text-xs font-semibold">COSTO COP</th>
-                          <th className="border border-gray-300 dark:border-gray-600 p-2 text-xs font-semibold">MARGEN %</th>
-                          <th className="border border-gray-300 dark:border-gray-600 p-2 text-xs font-semibold">PVP TOTAL</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {approvalQuote.rows.map((row, index) => (
-                          <tr key={index} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                            <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{row.item}</td>
-                            <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{row.cantidad}</td>
-                            <td className="border border-gray-300 dark:border-gray-600 p-2">{row.mayorista}</td>
-                            <td className="border border-gray-300 dark:border-gray-600 p-2">{row.marca} {row.referencia}</td>
-                            <td className="border border-gray-300 dark:border-gray-600 p-2 text-right">${row.costoUSD?.toLocaleString() || '0'}</td>
-                            <td className="border border-gray-300 dark:border-gray-600 p-2 text-right">{formatCurrency(row.costoCOP)}</td>
-                            <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{row.margen}%</td>
-                            <td className="border border-gray-300 dark:border-gray-600 p-2 text-right font-semibold">{formatCurrency(row.pvpTotal)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  {/* Productos con opciones para selección */}
+                  <div className="space-y-6">
+                    {getGroupedApprovalRows(approvalQuote.rows).map((group, groupIndex) => (
+                      <motion.div 
+                        key={group.item.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: groupIndex * 0.1 }}
+                        className="bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl overflow-hidden shadow-2xl"
+                      >
+                        {/* Header del producto mejorado */}
+                        <div className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 backdrop-blur-sm p-4 lg:p-6 border-b border-white/10">
+                          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
+                                <Package className="w-6 h-6 text-white" />
+                              </div>
+                              <div>
+                                <h3 className="font-bold text-white text-lg lg:text-xl">
+                                  {group.item.name}
+                                </h3>
+                                {group.item.description && (
+                                  <p className="text-blue-200 text-sm lg:text-base">
+                                    {group.item.description}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="bg-blue-500/20 backdrop-blur-sm text-blue-200 px-3 py-1 rounded-full text-sm font-medium border border-blue-400/30">
+                                {group.options.length} opción{group.options.length !== 1 ? 'es' : ''}
+                              </span>
+                              {selectedOptions[group.item.id] && (
+                                <span className="bg-green-500/20 backdrop-blur-sm text-green-200 px-3 py-1 rounded-full text-sm font-medium border border-green-400/30 flex items-center gap-1">
+                                  <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                                  Seleccionado
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Opciones del producto */}
+                        <div className="p-2 lg:p-4 space-y-3">
+                          {group.options.map((row, optionIndex) => (
+                            <motion.div
+                              key={row.id}
+                              initial={{ opacity: 0, x: -20 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ delay: (groupIndex * 0.1) + (optionIndex * 0.05) }}
+                              className={`relative cursor-pointer transition-all duration-300 rounded-xl overflow-hidden ${
+                                selectedOptions[group.item.id] === row.id
+                                  ? 'bg-gradient-to-r from-green-500/20 to-emerald-500/20 border-2 border-green-400/50 shadow-lg shadow-green-500/20'
+                                  : 'bg-white/5 backdrop-blur-sm border border-white/10 hover:bg-white/10 hover:border-white/20'
+                              }`}
+                              onClick={() => setSelectedOptions(prev => ({
+                                ...prev,
+                                [group.item.id]: row.id
+                              }))}
+                            >
+                              {/* Indicador de selección */}
+                              {selectedOptions[group.item.id] === row.id && (
+                                <div className="absolute top-3 right-3 z-10">
+                                  <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center shadow-lg">
+                                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                    </svg>
+                                  </div>
+                                </div>
+                              )}
+
+                              <div className="p-4 lg:p-6">
+                                {/* Header de la opción */}
+                                <div className="flex flex-col lg:flex-row lg:items-center gap-4 mb-4">
+                                  {/* Logo del proveedor mejorado */}
+                                  <div className="flex-shrink-0">
+                                    {(() => {
+                                      const providerInfo = getProviderInfo(row.mayorista)
+                                      return (
+                                        <div className="w-16 h-16 lg:w-20 lg:h-20 rounded-2xl overflow-hidden border-2 border-white/20 bg-white shadow-lg">
+                                          <img
+                                            src={providerInfo?.imageUrl || `https://via.placeholder.com/80x80?text=${encodeURIComponent(row.mayorista || 'N/A')}`}
+                                            alt={row.mayorista || 'Proveedor'}
+                                            className="w-full h-full object-cover"
+                                            onError={(e) => {
+                                              e.target.src = `https://via.placeholder.com/80x80?text=${encodeURIComponent(row.mayorista || 'N/A')}`
+                                            }}
+                                          />
+                                        </div>
+                                      )
+                                    })()}
+                                  </div>
+
+                                  {/* Información principal */}
+                                  <div className="flex-1">
+                                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
+                                      <div>
+                                        <h4 className="font-bold text-white text-lg">
+                                          {row.mayorista || 'Sin proveedor'}
+                                        </h4>
+                                        <p className="text-blue-200 text-sm">
+                                          {row.marca} {row.referencia}
+                                        </p>
+                                        {row.configuracion && row.configuracion !== `${row.marca} ${row.referencia}` && (
+                                          <p className="text-blue-300 text-xs mt-1 italic">
+                                            📝 {row.configuracion}
+                                          </p>
+                                        )}
+                                      </div>
+                                      <div className="text-right">
+                                        <div className="font-bold text-2xl text-green-300">
+                                          {formatCurrency(row.pvpTotal)}
+                                        </div>
+                                        <div className="text-green-200 text-sm">
+                                          ${row.costoUSD?.toLocaleString() || '0'} USD
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Desglose Financiero Completo */}
+                                <div className="space-y-4">
+                                  {/* Información básica */}
+                                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                                    <div className="bg-white/5 rounded-lg p-3">
+                                      <div className="text-xs text-blue-200">Cantidad</div>
+                                      <div className="font-semibold text-white">{row.cantidad}</div>
+                                    </div>
+                                    <div className="bg-white/5 rounded-lg p-3">
+                                      <div className="text-xs text-blue-200">TRM Utilizada</div>
+                                      <div className="font-semibold text-white">${row.trm?.toLocaleString()}</div>
+                                    </div>
+                                    <div className="bg-white/5 rounded-lg p-3">
+                                      <div className="text-xs text-blue-200">Margen Aplicado</div>
+                                      <div className="font-semibold text-white">{row.margen}%</div>
+                                    </div>
+                                    <div className="bg-white/5 rounded-lg p-3">
+                                      <div className="text-xs text-blue-200">IVA PVP</div>
+                                      <div className="font-semibold text-white">{row.ivaPercentPVP}%</div>
+                                    </div>
+                                  </div>
+
+                                  {/* Desglose de Costos */}
+                                  <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                                    <h5 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
+                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
+                                      </svg>
+                                      Desglose de Costos y Precios
+                                    </h5>
+                                    
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                      {/* Columna de Costos */}
+                                      <div className="space-y-3">
+                                        <div className="text-xs font-medium text-orange-200 mb-2">💰 ESTRUCTURA DE COSTOS</div>
+                                        
+                                        <div className="flex justify-between items-center py-2 border-b border-white/10">
+                                          <span className="text-xs text-blue-200">Costo Base USD:</span>
+                                          <span className="font-semibold text-white">${row.costoUSD?.toLocaleString() || '0'}</span>
+                                        </div>
+
+                                        {/* Mostrar costos adicionales si existen */}
+                                        {row.additionalCosts && row.additionalCosts.length > 0 && (
+                                          <div className="bg-orange-500/10 rounded-lg p-2 border border-orange-400/20 my-2">
+                                            <div className="text-xs font-medium text-orange-200 mb-2">
+                                              💰 COSTOS ADICIONALES ({row.additionalCosts.length})
+                                            </div>
+                                            {row.additionalCosts.map((cost, costIndex) => (
+                                              <div key={cost.id || costIndex} className="flex justify-between items-start py-1 text-xs">
+                                                <div className="flex-1 pr-2">
+                                                  <div className="text-orange-200">{cost.description}</div>
+                                                  {cost.includeIVA && (
+                                                    <div className="text-orange-300 text-xs">+ IVA incluido</div>
+                                                  )}
+                                                </div>
+                                                <div className="text-orange-100 font-semibold">
+                                                  {cost.currency === 'USD' 
+                                                    ? `$${cost.valueUSD?.toLocaleString() || '0'} USD`
+                                                    : `${formatCurrency(cost.valueCOP || 0)}`
+                                                  }
+                                                </div>
+                                              </div>
+                                            ))}
+                                            <div className="flex justify-between items-center pt-2 mt-2 border-t border-orange-400/20">
+                                              <span className="text-xs font-medium text-orange-200">Total Adicionales USD:</span>
+                                              <span className="font-bold text-orange-100">
+                                                +${row.additionalCostUSD?.toFixed(2) || '0.00'}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        )}
+                                        
+                                        <div className="flex justify-between items-center py-2 border-b border-white/10">
+                                          <span className="text-xs text-blue-200">Costo Total USD:</span>
+                                          <span className="font-semibold text-white">
+                                            ${((row.costoUSD || 0) + (row.additionalCostUSD || 0)).toLocaleString()}
+                                          </span>
+                                        </div>
+                                        
+                                        <div className="flex justify-between items-center py-2 border-b border-white/10">
+                                          <span className="text-xs text-blue-200">Costo COP (TRM):</span>
+                                          <span className="font-semibold text-white">{formatCurrency(row.costoCOP || 0)}</span>
+                                        </div>
+                                        
+                                        <div className="flex justify-between items-center py-2 border-b border-white/10">
+                                          <span className="text-xs text-blue-200">IVA Costo ({row.ivaPercentCosto}%):</span>
+                                          <span className="font-semibold text-white">{formatCurrency(row.valorIvaCosto || 0)}</span>
+                                        </div>
+                                        
+                                        <div className="flex justify-between items-center py-2 border-b-2 border-orange-400/30">
+                                          <span className="text-sm font-medium text-orange-200">Costo Total + IVA:</span>
+                                          <span className="font-bold text-orange-300">{formatCurrency(row.costoConIva || 0)}</span>
+                                        </div>
+                                        
+                                        <div className="flex justify-between items-center py-2">
+                                          <span className="text-sm font-medium text-orange-200">Costo Final (x{row.cantidad}):</span>
+                                          <span className="font-bold text-lg text-orange-300">{formatCurrency(row.costoTotal || 0)}</span>
+                                        </div>
+                                      </div>
+
+                                      {/* Columna de Precios de Venta */}
+                                      <div className="space-y-3">
+                                        <div className="text-xs font-medium text-green-200 mb-2">💵 PRECIO DE VENTA</div>
+                                        
+                                        <div className="flex justify-between items-center py-2 border-b border-white/10">
+                                          <span className="text-xs text-blue-200">PVP Unitario:</span>
+                                          <span className="font-semibold text-white">{formatCurrency(row.pvpUnitario || 0)}</span>
+                                        </div>
+                                        
+                                        <div className="flex justify-between items-center py-2 border-b border-white/10">
+                                          <span className="text-xs text-blue-200">Margen Aplicado:</span>
+                                          <span className="font-semibold text-green-300">+{row.margen}%</span>
+                                        </div>
+                                        
+                                        <div className="flex justify-between items-center py-2 border-b border-white/10">
+                                          <span className="text-xs text-blue-200">IVA PVP ({row.ivaPercentPVP}%):</span>
+                                          <span className="font-semibold text-white">{formatCurrency(row.valorIvaPVP || 0)}</span>
+                                        </div>
+                                        
+                                        <div className="flex justify-between items-center py-2 border-b-2 border-green-400/30">
+                                          <span className="text-sm font-medium text-green-200">PVP + IVA Unitario:</span>
+                                          <span className="font-bold text-green-300">{formatCurrency(row.pvpMasIva || 0)}</span>
+                                        </div>
+                                        
+                                        <div className="flex justify-between items-center py-2">
+                                          <span className="text-sm font-medium text-green-200">Precio Final (x{row.cantidad}):</span>
+                                          <span className="font-bold text-xl text-green-300">{formatCurrency(row.pvpTotal || 0)}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* Resumen de Rentabilidad */}
+                                    <div className="mt-4 p-3 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-lg border border-blue-400/20">
+                                      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
+                                        <div className="text-xs font-medium text-blue-200">💹 RENTABILIDAD:</div>
+                                        <div className="flex items-center gap-4">
+                                          <span className="text-xs text-blue-200">
+                                            Ganancia Bruta: 
+                                            <span className="font-bold text-blue-300 ml-1">
+                                              {formatCurrency((row.pvpTotal || 0) - (row.costoTotal || 0))}
+                                            </span>
+                                          </span>
+                                          <span className="text-xs text-blue-200">
+                                            ROI: 
+                                            <span className="font-bold text-blue-300 ml-1">
+                                              {row.costoTotal > 0 ? (((row.pvpTotal - row.costoTotal) / row.costoTotal) * 100).toFixed(1) : 0}%
+                                            </span>
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </motion.div>
+                          ))}
+                        </div>
+
+                        {/* Resumen Comparativo */}
+                        {group.options.length > 1 && (
+                          <div className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 border-t border-white/10 p-4 lg:p-6">
+                            <h5 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                              </svg>
+                              Comparación de Opciones
+                            </h5>
+                            
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                              {/* Opción más económica */}
+                              {(() => {
+                                const cheapest = group.options.reduce((prev, current) => 
+                                  (prev.pvpTotal < current.pvpTotal) ? prev : current
+                                )
+                                return (
+                                  <div className="bg-green-500/10 rounded-lg p-3 border border-green-400/20">
+                                    <div className="text-xs font-medium text-green-200 mb-1">💰 MÁS ECONÓMICA</div>
+                                    <div className="font-semibold text-green-300">{cheapest.mayorista}</div>
+                                    <div className="text-xl font-bold text-green-300">{formatCurrency(cheapest.pvpTotal)}</div>
+                                    <div className="text-xs text-green-200">Ahorro vs más cara: {formatCurrency(Math.max(...group.options.map(o => o.pvpTotal)) - cheapest.pvpTotal)}</div>
+                                  </div>
+                                )
+                              })()}
+
+                              {/* Mejor margen */}
+                              {(() => {
+                                const bestMargin = group.options.reduce((prev, current) => 
+                                  (prev.margen > current.margen) ? prev : current
+                                )
+                                return (
+                                  <div className="bg-blue-500/10 rounded-lg p-3 border border-blue-400/20">
+                                    <div className="text-xs font-medium text-blue-200 mb-1">📈 MEJOR MARGEN</div>
+                                    <div className="font-semibold text-blue-300">{bestMargin.mayorista}</div>
+                                    <div className="text-xl font-bold text-blue-300">{bestMargin.margen}%</div>
+                                    <div className="text-xs text-blue-200">Ganancia: {formatCurrency((bestMargin.pvpTotal || 0) - (bestMargin.costoTotal || 0))}</div>
+                                  </div>
+                                )
+                              })()}
+
+                              {/* Promedio del grupo */}
+                              <div className="bg-purple-500/10 rounded-lg p-3 border border-purple-400/20">
+                                <div className="text-xs font-medium text-purple-200 mb-1">📊 PROMEDIO GRUPO</div>
+                                <div className="font-semibold text-purple-300">{group.options.length} opciones</div>
+                                <div className="text-xl font-bold text-purple-300">
+                                  {formatCurrency(group.options.reduce((sum, opt) => sum + opt.pvpTotal, 0) / group.options.length)}
+                                </div>
+                                <div className="text-xs text-purple-200">
+                                  Rango: {formatCurrency(Math.min(...group.options.map(o => o.pvpTotal)))} - {formatCurrency(Math.max(...group.options.map(o => o.pvpTotal)))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Área de comentarios por producto mejorada */}
+                        <div className="bg-white/5 backdrop-blur-sm border-t border-white/10 p-4 lg:p-6">
+                          <label className="block text-sm font-medium text-white mb-3 flex items-center gap-2">
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
+                            </svg>
+                            Comentarios para {group.item.name}
+                          </label>
+                          <textarea
+                            value={itemComments[group.item.id] || ''}
+                            onChange={(e) => setItemComments(prev => ({
+                              ...prev,
+                              [group.item.id]: e.target.value
+                            }))}
+                            placeholder="Deja comentarios específicos para este producto (opcional)..."
+                            className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-blue-400 focus:border-blue-400 text-white placeholder-blue-200 resize-none transition-all duration-200"
+                            rows={3}
+                          />
+                        </div>
+                      </motion.div>
+                    ))}
                   </div>
                 </motion.div>
 
-                {/* Botones de Aprobación */}
+                {/* Resumen de Selección Mejorado */}
                 <motion.div
-                  initial={{ y: 20, opacity: 0 }}
+                  initial={{ y: 30, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
-                  transition={{ delay: 0.4 }}
-                  className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6"
+                  transition={{ delay: 0.5, duration: 0.6 }}
+                  className="bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl shadow-2xl p-6 lg:p-8"
                 >
-                  <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-200 mb-4 text-center">
-                    🤔 ¿Cuál es tu decisión?
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+                      <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <h2 className="text-2xl font-bold text-white">
+                      Resumen de Selección
                   </h2>
+                  </div>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Aprobar */}
-                    <div className="space-y-4">
+                  {Object.keys(selectedOptions).length > 0 ? (
+                    <div className="space-y-3">
+                      {getGroupedApprovalRows(approvalQuote.rows).map((group) => {
+                        const selectedRowId = selectedOptions[group.item.id]
+                        const selectedRow = group.options.find(row => row.id === selectedRowId)
+                        
+                        return (
+                          <div key={group.item.id} className="flex items-center justify-between p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                              <span className="font-medium">{group.item.name}:</span>
+                              <span className="text-gray-600 dark:text-gray-400">
+                                {selectedRow ? `${selectedRow.mayorista} - ${formatCurrency(selectedRow.pvpTotal)}` : 'No seleccionado'}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                      
+                      <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-blue-800 dark:text-blue-200">Total Seleccionado:</span>
+                          <span className="font-bold text-xl text-green-600 dark:text-green-400">
+                            {formatCurrency(
+                              Object.entries(selectedOptions).reduce((total, [itemId, rowId]) => {
+                                const group = getGroupedApprovalRows(approvalQuote.rows).find(g => g.item.id === itemId)
+                                const selectedRow = group?.options.find(row => row.id === rowId)
+                                return total + (selectedRow?.pvpTotal || 0)
+                              }, 0)
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center text-gray-500 dark:text-gray-400 py-4">
+                      ⚠️ Selecciona al menos una opción de cada producto para continuar
+                    </div>
+                  )}
+                </motion.div>
+
+                {/* Botones de Decisión Mejorados */}
+                <motion.div
+                  initial={{ y: 30, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{ delay: 0.7, duration: 0.6 }}
+                  className="bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl shadow-2xl p-6 lg:p-8"
+                >
+                  <div className="text-center mb-8">
+                    <h2 className="text-3xl font-bold text-white mb-2">
+                      ¿Cuál es tu decisión?
+                    </h2>
+                    <p className="text-blue-200">
+                      Revisa las opciones seleccionadas y toma una decisión
+                    </p>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Botón Aprobar */}
+                    <motion.div
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="space-y-4"
+                    >
                       <Button
                         onClick={() => handleApproval(true)}
-                        className="w-full bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white text-lg py-4"
+                        disabled={Object.keys(selectedOptions).length === 0}
+                        className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white text-lg lg:text-xl py-6 lg:py-8 rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 font-bold"
                       >
-                        ✅ APROBAR COTIZACIÓN
+                        <div className="flex items-center justify-center gap-3">
+                          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                          APROBAR COTIZACIÓN
+                        </div>
                       </Button>
-                      <div className="text-center text-sm text-gray-600 dark:text-gray-400">
-                        La cotización se aprobará y se enviará confirmación por WhatsApp
+                      <div className="text-center text-sm text-green-200 bg-green-500/10 backdrop-blur-sm rounded-lg p-3 border border-green-400/20">
+                        ✅ Las opciones seleccionadas serán aprobadas y el vendedor será notificado automáticamente
                       </div>
-                    </div>
+                    </motion.div>
 
-                    {/* Denegar */}
-                    <div className="space-y-4">
+                    {/* Botón Re-cotización */}
+                    <motion.div
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="space-y-4"
+                    >
                       <Button
-                        onClick={() => {
-                          const reason = prompt('Por favor ingresa la razón para denegar esta cotización:')
-                          if (reason && reason.trim()) {
-                            handleApproval(false, reason.trim())
-                          }
-                        }}
-                        className="w-full bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white text-lg py-4"
+                        onClick={() => handleApproval(false)}
+                        className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white text-lg lg:text-xl py-6 lg:py-8 rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 font-bold"
                       >
-                        ❌ DENEGAR COTIZACIÓN
+                        <div className="flex items-center justify-center gap-3">
+                          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                          </svg>
+                          SOLICITAR RE-COTIZACIÓN
+                        </div>
                       </Button>
-                      <div className="text-center text-sm text-gray-600 dark:text-gray-400">
-                        Se solicitará una razón y se enviará por WhatsApp
+                      <div className="text-center text-sm text-orange-200 bg-orange-500/10 backdrop-blur-sm rounded-lg p-3 border border-orange-400/20">
+                        🔄 Los comentarios serán enviados para ajustar la cotización
                       </div>
-                    </div>
+                    </motion.div>
                   </div>
                 </motion.div>
               </div>
@@ -2342,6 +3545,46 @@ const CostosTable = () => {
       <ProvidersModal
         isOpen={showProvidersModal}
         onClose={() => setShowProvidersModal(false)}
+      />
+
+      {/* Modal de Primer Ítem */}
+      <FirstItemModal
+        isOpen={showFirstItemModal}
+        onClose={() => setShowFirstItemModal(false)}
+        onItemAdd={handleFirstItemAdd}
+      />
+
+      {/* Notificación Toast */}
+      <NotificationToast
+        notification={currentNotification}
+        onClose={dismissCurrentNotification}
+      />
+
+      {/* Modal de Costos Adicionales */}
+      <AdditionalCostsModal
+        isOpen={showAdditionalCostsModal}
+        onClose={() => setShowAdditionalCostsModal(false)}
+        rowData={selectedRowForCosts}
+        onSave={saveAdditionalCosts}
+        formatCurrency={formatCurrency}
+      />
+
+      {/* Modal de Validación de PIN */}
+      <PinValidationModal
+        isOpen={showPinValidation}
+        onValidate={validateSecurityPin}
+        onClose={() => {
+          setShowPinValidation(false)
+          setPinAttempts(0)
+          setValidatedPin(null)
+          window.pendingApprovalId = null
+          // Redirigir a la página principal si se cancela
+          window.location.href = APP_BASE_URL
+        }}
+        clienteName={approvalQuote?.clienteName || 'Cliente'}
+        cotizacionId={window.pendingApprovalId}
+        attempts={pinAttempts}
+        maxAttempts={3}
       />
     </div>
   )
