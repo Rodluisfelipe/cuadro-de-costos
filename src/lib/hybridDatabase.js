@@ -295,9 +295,18 @@ export class HybridDatabase {
       console.log('📤 [Híbrido] Subiendo cotizaciones pendientes...')
       
       const allQuotes = await cotizacionesDB.getAll()
-      const pendingQuotes = allQuotes.filter(q => q.syncStatus === 'pending' && !q.firebaseId)
+      // Buscar cotizaciones que necesiten subirse: sin firebaseId O con syncStatus pending
+      const pendingQuotes = allQuotes.filter(q => 
+        !q.firebaseId || q.syncStatus === 'pending'
+      )
       
       console.log(`📤 [Híbrido] ${pendingQuotes.length} cotizaciones pendientes de subir`)
+      console.log(`🔍 [Debug] Total cotizaciones locales: ${allQuotes.length}`)
+      console.log(`🔍 [Debug] Cotizaciones con syncStatus:`, allQuotes.map(q => ({
+        id: q.cotizacion_id,
+        syncStatus: q.syncStatus,
+        hasFirebaseId: !!q.firebaseId
+      })))
       
       for (const quote of pendingQuotes) {
         try {

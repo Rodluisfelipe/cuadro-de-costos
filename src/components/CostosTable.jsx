@@ -375,6 +375,20 @@ const CostosTable = () => {
   useEffect(() => {
     fetchOficialTRM()
     
+    // Sincronizar proveedores con Firebase al iniciar
+    const syncProviders = async () => {
+      try {
+        console.log('🔄 [Inicio] Sincronizando proveedores...')
+        await providersManager.forceSync()
+        console.log('✅ [Inicio] Proveedores sincronizados')
+      } catch (error) {
+        console.warn('⚠️ [Inicio] Error sincronizando proveedores:', error)
+      }
+    }
+    
+    // Ejecutar sincronización después de un breve delay para que Firebase se inicialice
+    setTimeout(syncProviders, 2000)
+    
     // Verificar si hay un enlace de aprobación en la URL
     const urlParams = new URLSearchParams(window.location.search)
     const approvalData = urlParams.get('approval') // Método antiguo (Base64)
@@ -3588,6 +3602,86 @@ ${securityMessage}
       />
     </div>
   )
+}
+
+// Funciones globales para debugging (disponibles en consola del navegador)
+if (typeof window !== 'undefined') {
+  window.debugSync = {
+    // Forzar sincronización completa
+    async forceFullSync() {
+      try {
+        console.log('🔄 [Debug] Iniciando sincronización completa...')
+        
+        // Sincronizar proveedores
+        console.log('🔄 [Debug] Sincronizando proveedores...')
+        await providersManager.forceSync()
+        
+        // Sincronizar cotizaciones
+        console.log('🔄 [Debug] Sincronizando cotizaciones...')
+        const { hybridDB } = await import('../lib/hybridDatabase')
+        await hybridDB.forcSync()
+        
+        console.log('✅ [Debug] Sincronización completa terminada')
+        return { success: true, message: 'Sincronización completa exitosa' }
+      } catch (error) {
+        console.error('❌ [Debug] Error en sincronización:', error)
+        return { success: false, error: error.message }
+      }
+    },
+    
+    // Verificar estado de datos locales
+    async checkLocalData() {
+      try {
+        const { cotizacionesDB } = await import('../lib/database')
+        const quotes = await cotizacionesDB.getAll()
+        const providers = providersManager.getAll()
+        
+        console.log('📊 [Debug] Estado de datos locales:')
+        console.log('📋 Cotizaciones:', quotes.length)
+        console.log('🏪 Proveedores:', providers.length)
+        console.log('📋 Detalle cotizaciones:', quotes.map(q => ({
+          id: q.cotizacion_id,
+          syncStatus: q.syncStatus,
+          hasFirebaseId: !!q.firebaseId,
+          clienteName: q.clienteName
+        })))
+        
+        return {
+          quotes: quotes.length,
+          providers: providers.length,
+          quotesDetails: quotes,
+          providersDetails: providers
+        }
+      } catch (error) {
+        console.error('❌ [Debug] Error verificando datos:', error)
+        return { error: error.message }
+      }
+    },
+    
+    // Limpiar datos locales (usar con cuidado)
+    async clearLocalData() {
+      if (!confirm('⚠️ ¿Estás seguro de que quieres limpiar TODOS los datos locales?')) {
+        return { cancelled: true }
+      }
+      
+      try {
+        const { cotizacionesDB } = await import('../lib/database')
+        await cotizacionesDB.clear()
+        localStorage.removeItem('tecnophone_providers')
+        
+        console.log('🗑️ [Debug] Datos locales limpiados')
+        return { success: true, message: 'Datos locales limpiados' }
+      } catch (error) {
+        console.error('❌ [Debug] Error limpiando datos:', error)
+        return { error: error.message }
+      }
+    }
+  }
+  
+  console.log('🛠️ [Debug] Herramientas de sincronización disponibles:')
+  console.log('   window.debugSync.forceFullSync() - Forzar sincronización completa')
+  console.log('   window.debugSync.checkLocalData() - Verificar datos locales')
+  console.log('   window.debugSync.clearLocalData() - Limpiar datos locales')
 }
 
 export default CostosTable
