@@ -35,7 +35,7 @@ const generateApprovalLink = (quote) => {
   const encodedQuote = encodeQuoteToBase64(quote)
   if (!encodedQuote) return null
   
-  return `${APP_BASE_URL}?approval=${encodedQuote}`
+  return `?approval=${encodedQuote}`
 }
 
 // Función eliminada - ya no generamos mensajes de WhatsApp
@@ -57,12 +57,12 @@ import BuyerPanel from './BuyerPanel.jsx'
 import RevisorPanel from './RevisorPanel.jsx'
 import useRealtimeNotifications from '../hooks/useRealtimeNotifications.jsx'
 import { providersManager } from '../lib/providersConfig.js'
-import { generatePinInfo, generateSecurityMessage, validatePinFormat } from '../lib/pinUtils.js'
+
 import { formatCurrency, formatPercentage, parseNumber, cn } from '../lib/utils'
 import jsPDF from 'jspdf'
 
 // URL base de la aplicación desplegada
-const APP_BASE_URL = 'https://cuadro-de-costos.vercel.app'
+
 
 const CostosTable = () => {
   const { theme, setTheme } = useTheme()
@@ -326,8 +326,7 @@ const CostosTable = () => {
   const [showProvidersModal, setShowProvidersModal] = useState(false)
   
   // Estados para sistema de aprobación
-  const [showApprovalLink, setShowApprovalLink] = useState(false)
-  const [generatedLink, setGeneratedLink] = useState('')
+
   const [approvalQuote, setApprovalQuote] = useState(null)
   const [showApprovalView, setShowApprovalView] = useState(false)
   const [selectedOptions, setSelectedOptions] = useState({}) // {itemId: rowId}
@@ -883,7 +882,7 @@ const CostosTable = () => {
         setEditingQuote(null) // CLAVE: limpiar estado de edición
         setShowSavedQuotes(false)
         setCollapsedItems(new Set())
-        setShowApprovalLink(false)
+
         setShowApprovalView(false)
         
         // Limpiar estados del modo ítem
@@ -915,7 +914,7 @@ const CostosTable = () => {
     }
   }
 
-  // Funciones para sistema de aprobación
+  // Funciones para sistema de aprobación simplificado
   const sendForApproval = async () => {
     if (!clienteName.trim()) {
       alert('Por favor ingresa el nombre del cliente antes de enviar a aprobación')
@@ -929,37 +928,34 @@ const CostosTable = () => {
 
     try {
       // Preparar la cotización
-    const quote = {
+      const quote = {
         cotizacion_id: editingQuote ? editingQuote.cotizacion_id : generateUniqueId(),
-      clienteName: clienteName.trim(),
-      trmGlobal,
-      rows,
-      totalGeneral: rows.reduce((sum, row) => sum + (row.pvpTotal || 0), 0),
-      date: editingQuote ? editingQuote.date : new Date().toISOString(),
-      dateFormatted: editingQuote ? editingQuote.dateFormatted : new Date().toLocaleString('es-CO'),
-      status: 'pending_approval',
-      trmOficial: oficialTRM,
-      lastTrmUpdate: lastTrmUpdate,
-      // Información del vendedor
-      vendorName: userInfo?.displayName || userInfo?.email || 'Vendedor',
-      vendorEmail: userInfo?.email || 'sin-email'
-    }
-
-    // Generar PIN de seguridad único
-    console.log('🔐 Generando PIN de seguridad...')
-    const existingPins = [] // TODO: En el futuro, obtener PINs existentes para evitar duplicados
-    const securityPinInfo = generatePinInfo(quote.cotizacion_id, existingPins)
-    quote.securityPin = securityPinInfo
-    
-    console.log('✅ PIN de seguridad generado:', securityPinInfo.pin)
+        clienteName: clienteName.trim(),
+        trmGlobal,
+        rows,
+        totalGeneral: rows.reduce((sum, row) => sum + (row.pvpTotal || 0), 0),
+        date: editingQuote ? editingQuote.date : new Date().toISOString(),
+        dateFormatted: editingQuote ? editingQuote.dateFormatted : new Date().toLocaleString('es-CO'),
+        status: 'pending_approval',
+        trmOficial: oficialTRM,
+        lastTrmUpdate: lastTrmUpdate,
+        // Información del vendedor
+        vendorName: userInfo?.displayName || userInfo?.email || 'Vendedor',
+        vendorEmail: userInfo?.email || 'sin-email',
+        // Metadatos adicionales
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        sentForApprovalAt: new Date().toISOString(),
+        sentForApprovalBy: userInfo?.email || 'Vendedor'
+      }
 
       // Si estamos editando, incluir el ID de la BD
       if (editingQuote && editingQuote.id) {
         quote.id = editingQuote.id
       }
 
-      // PRIMERO: Guardar en la base de datos
-      console.log('💾 Guardando cotización en BD antes de enviar para aprobación...')
+      // Guardar en la base de datos
+      console.log('💾 Guardando cotización en BD para aprobación...')
       await saveCotizacion(quote)
       
       // Obtener la cotización guardada con su ID de BD
@@ -969,29 +965,21 @@ const CostosTable = () => {
         throw new Error('No se pudo recuperar la cotización guardada')
       }
 
-      // SEGUNDO: Generar enlace usando el ID de la cotización
-      const approvalUrl = `${APP_BASE_URL}?approval_id=${savedQuote.cotizacion_id}`
-      
-      // TERCERO: Generar mensaje de seguridad con PIN
-      const securityMessage = generateSecurityMessage(savedQuote.securityPin.pin, clienteName)
-      const fullMessage = `
-🔗 ENLACE DE APROBACIÓN:
-${approvalUrl}
-
-${securityMessage}
-      `.trim()
-      
-      setGeneratedLink(fullMessage)
-      setShowApprovalLink(true)
-      
-      console.log('✅ Cotización guardada en BD y enlace generado:', approvalUrl)
-      console.log('🔐 PIN de seguridad:', savedQuote.securityPin.pin)
+      console.log('✅ Cotización enviada para aprobación exitosamente')
       console.log('📊 ID de BD:', savedQuote.id, 'ID de Cotización:', savedQuote.cotizacion_id)
+      
+      // Mostrar mensaje de éxito
+      alert('✅ Cotización enviada para aprobación exitosamente.\n\nLa cotización ahora está disponible en el Panel de Revisor para su revisión.')
       
       // Actualizar estado de edición si es necesario
       if (!editingQuote) {
         setEditingQuote(savedQuote)
       }
+      
+      // Limpiar el formulario después de enviar
+      setClienteName('')
+      setRows([])
+      setEditingQuote(null)
       
     } catch (error) {
       console.error('❌ Error enviando cotización para aprobación:', error)
@@ -999,13 +987,7 @@ ${securityMessage}
     }
   }
 
-  const copyApprovalLink = () => {
-    navigator.clipboard.writeText(generatedLink).then(() => {
-      alert('¡Enlace copiado al portapapeles!')
-    }).catch(() => {
-      alert('Error al copiar el enlace')
-    })
-  }
+
 
   const handleApproval = async (approved) => {
     if (!approvalQuote) return
@@ -2977,73 +2959,7 @@ ${securityMessage}
         )}
       </div>
 
-      {/* Modal para Enlace de Aprobación */}
-      <AnimatePresence>
-        {showApprovalLink && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-            onClick={() => setShowApprovalLink(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-2xl w-full p-6"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">
-                  🔗 Enlace de Aprobación Generado
-                </h2>
-                <Button
-                  onClick={() => setShowApprovalLink(false)}
-                  variant="outline"
-                  size="sm"
-                  className="text-gray-500 hover:text-gray-700"
-                >
-                  ✕
-                </Button>
-              </div>
 
-              <div className="space-y-4">
-                <div className="bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-900/30 dark:to-amber-900/30 p-4 rounded-lg border border-orange-200 dark:border-orange-700">
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                    📤 Comparte este enlace con quien debe aprobar la cotización:
-                  </p>
-                  <div className="bg-white dark:bg-gray-700 p-3 rounded-lg border border-gray-200 dark:border-gray-600 break-all text-sm font-mono">
-                    {generatedLink}
-                  </div>
-                </div>
-
-                <div className="flex gap-3">
-                  <Button
-                    onClick={copyApprovalLink}
-                    className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white flex-1"
-                  >
-                    📋 Copiar Enlace
-                  </Button>
-                  {/* Botón eliminado - ya no usamos WhatsApp */}
-                </div>
-
-                <div className="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg border border-blue-200 dark:border-blue-700">
-                  <h3 className="font-semibold text-blue-800 dark:text-blue-300 mb-2">
-                    ℹ️ Instrucciones:
-                  </h3>
-                  <ul className="text-sm text-blue-700 dark:text-blue-400 space-y-1">
-                    <li>• El receptor podrá ver toda la cotización</li>
-                    <li>• Tendrá opciones para Aprobar o Denegar</li>
-                    <li>• Recibirás la respuesta automáticamente en tiempo real</li>
-                    <li>• El enlace es seguro y contiene toda la información encriptada</li>
-                  </ul>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Vista de Aprobación */}
       <AnimatePresence>
@@ -3813,7 +3729,7 @@ ${securityMessage}
           setValidatedPin(null)
           window.pendingApprovalId = null
           // Redirigir a la página principal si se cancela
-          window.location.href = APP_BASE_URL
+          window.location.href = '/'
         }}
         clienteName={approvalQuote?.clienteName || 'Cliente'}
         cotizacionId={window.pendingApprovalId}
