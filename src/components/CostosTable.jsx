@@ -139,6 +139,21 @@ const CostosTable = () => {
     refreshCotizaciones()
   }, [refreshCotizaciones])
 
+  // Debug: Log cuando savedQuotes cambie
+  useEffect(() => {
+    console.log('🔍 [CostosTable] savedQuotes actualizado:', savedQuotes)
+    console.log('🔍 [CostosTable] Total de cotizaciones:', savedQuotes?.length || 0)
+    if (savedQuotes && savedQuotes.length > 0) {
+      console.log('🔍 [CostosTable] Estados de las cotizaciones:', savedQuotes.map(q => ({
+        id: q.id,
+        cotizacion_id: q.cotizacion_id,
+        clienteName: q.clienteName,
+        status: q.status,
+        totalGeneral: q.totalGeneral
+      })))
+    }
+  }, [savedQuotes])
+
   // Escuchar eventos de cambio de estado de cotizaciones
   useEffect(() => {
     const handleCotizacionStatusChanged = (event) => {
@@ -2476,8 +2491,8 @@ const CostosTable = () => {
             </div>
           </div>
           
-          {/* Botón de refrescar */}
-          <div className="flex justify-center mt-3">
+          {/* Botones de debug y refrescar */}
+          <div className="flex justify-center gap-3 mt-3">
             <button
               onClick={() => {
                 console.log('🔄 [CostosTable] Refresco manual solicitado...')
@@ -2491,6 +2506,56 @@ const CostosTable = () => {
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
               Refrescar
+            </button>
+            
+            <button
+              onClick={() => {
+                console.log('🔍 [DEBUG] Estado completo de savedQuotes:', savedQuotes)
+                console.log('🔍 [DEBUG] Total de cotizaciones:', savedQuotes?.length || 0)
+                if (savedQuotes && savedQuotes.length > 0) {
+                  savedQuotes.forEach((quote, index) => {
+                    console.log(`📋 [DEBUG] Cotización ${index + 1}:`, {
+                      id: quote.id,
+                      cotizacion_id: quote.cotizacion_id,
+                      clienteName: quote.clienteName,
+                      status: quote.status,
+                      totalGeneral: quote.totalGeneral,
+                      rowsCount: quote.rows?.length || 0
+                    })
+                  })
+                }
+                
+                // Verificar IndexedDB directamente
+                const db = indexedDB.open('CotizacionesDB', 1)
+                db.onsuccess = function(event) {
+                  const database = event.target.result
+                  const transaction = database.transaction(['cotizaciones'], 'readonly')
+                  const store = transaction.objectStore('cotizaciones')
+                  const request = store.getAll()
+                  
+                  request.onsuccess = function() {
+                    const cotizacionesDB = request.result
+                    console.log('🔍 [IndexedDB] Total de cotizaciones:', cotizacionesDB.length)
+                    cotizacionesDB.forEach((quote, index) => {
+                      console.log(`📋 [IndexedDB] Cotización ${index + 1}:`, {
+                        id: quote.id,
+                        cotizacion_id: quote.cotizacion_id,
+                        clienteName: quote.clienteName,
+                        status: quote.status,
+                        totalGeneral: quote.totalGeneral,
+                        rowsCount: quote.rows?.length || 0
+                      })
+                    })
+                  }
+                }
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-600 hover:to-orange-700 text-white rounded-lg shadow-md hover:shadow-lg transition-all duration-200 text-sm font-medium"
+              title="Debug de cotizaciones"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              Debug
             </button>
           </div>
         </motion.div>
@@ -3655,7 +3720,9 @@ const CostosTable = () => {
                 </div>
               ) : (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {savedQuotes.map((quote) => (
+                  {(() => {
+                    console.log('🔍 [CostosTable] Renderizando cotizaciones:', savedQuotes.length)
+                    return savedQuotes.map((quote) => (
                     <motion.div
                       key={quote.id}
                       initial={{ opacity: 0, scale: 0.9 }}
@@ -3738,7 +3805,8 @@ const CostosTable = () => {
                         </div>
                       </div>
                     </motion.div>
-                  ))}
+                  ))})
+                  }
                 </div>
               )}
             </div>
