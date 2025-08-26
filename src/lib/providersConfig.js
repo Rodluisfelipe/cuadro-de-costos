@@ -9,7 +9,7 @@ export const PROVIDERS_CONFIG = {
     {
       id: 'provider-1',
       name: 'Proveedor Ejemplo',
-      imageUrl: 'https://via.placeholder.com/150x150?text=Proveedor',
+      imageUrl: 'https://ui-avatars.com/api/?name=Proveedor&size=150&background=0ea5e9&color=fff&rounded=true',
       category: 'General',
       isActive: true,
       createdAt: new Date().toISOString(),
@@ -149,8 +149,9 @@ export class ProvidersManager {
       const providersRef = collection(db, 'providers')
       const q = query(
         providersRef,
-        where('companyId', '==', 'TECNOPHONE'),
-        orderBy('createdAt', 'desc')
+        where('companyId', '==', 'TECNOPHONE')
+        // Nota: orderBy removido temporalmente para evitar error de índice
+        // Se puede ordenar en el cliente después de obtener los datos
       )
       
       const querySnapshot = await getDocs(q)
@@ -164,6 +165,13 @@ export class ProvidersManager {
           createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt,
           updatedAt: data.updatedAt?.toDate?.()?.toISOString() || data.updatedAt
         })
+      })
+
+      // Ordenar por createdAt en el cliente (más recientes primero)
+      firebaseProviders.sort((a, b) => {
+        const dateA = new Date(a.createdAt || 0)
+        const dateB = new Date(b.createdAt || 0)
+        return dateB - dateA
       })
 
       // Fusionar con proveedores locales
@@ -385,7 +393,7 @@ export class ProvidersManager {
       for (const provider of validProviders) {
         await this.add({
           name: provider.name,
-          imageUrl: provider.imageUrl || 'https://via.placeholder.com/150x150?text=Proveedor',
+          imageUrl: provider.imageUrl || 'https://ui-avatars.com/api/?name=Proveedor&size=150&background=0ea5e9&color=fff&rounded=true',
           category: provider.category || 'General'
         })
       }

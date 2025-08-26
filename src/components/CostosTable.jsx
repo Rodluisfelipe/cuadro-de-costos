@@ -110,7 +110,7 @@ const CostosTable = () => {
     
     return provider || {
       name: providerName,
-      imageUrl: `https://via.placeholder.com/150x150?text=${encodeURIComponent(providerName)}`,
+      imageUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(providerName)}&size=150&background=0ea5e9&color=fff&rounded=true`,
       category: 'No especificado'
     }
   }

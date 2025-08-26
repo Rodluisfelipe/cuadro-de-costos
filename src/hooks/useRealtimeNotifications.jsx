@@ -21,8 +21,9 @@ export const useRealtimeNotifications = () => {
       cotizacionesRef,
       where('userEmail', '==', userInfo.email),
       where('companyId', '==', 'TECNOPHONE'),
-      orderBy('updatedAt', 'desc'),
       limit(50)
+      // Nota: orderBy removido temporalmente para evitar error de índice
+      // Los datos se procesan en tiempo real, el orden no es crítico aquí
     )
 
     // Listener en tiempo real

@@ -116,8 +116,9 @@ export const firebaseQuotesService = {
       console.log('📋 Obteniendo cotizaciones de Firebase...')
       const q = query(
         collection(db, 'cotizaciones'),
-        where('companyId', '==', companyId),
-        orderBy('updatedAt', 'desc')
+        where('companyId', '==', companyId)
+        // Nota: orderBy removido temporalmente para evitar error de índice
+        // Se ordenará en el cliente después de obtener los datos
       )
       
       const querySnapshot = await getDocs(q)
@@ -132,6 +133,13 @@ export const firebaseQuotesService = {
           updatedAt: doc.data().updatedAt?.toDate(),
           approvalDate: doc.data().approvalDate?.toDate()
         })
+      })
+      
+      // Ordenar por updatedAt en el cliente (más recientes primero)
+      cotizaciones.sort((a, b) => {
+        const dateA = new Date(a.updatedAt || a.date || 0)
+        const dateB = new Date(b.updatedAt || b.date || 0)
+        return dateB - dateA
       })
       
       console.log(`✅ ${cotizaciones.length} cotizaciones obtenidas de Firebase`)
