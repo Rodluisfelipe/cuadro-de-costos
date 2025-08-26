@@ -42,15 +42,18 @@ export const ROLE_PERMISSIONS = {
   
   [USER_ROLES.COMPRADOR]: {
     name: 'Comprador',
-    description: 'Revisar cotizaciones aprobadas, gestionar compras',
+    description: 'Gestionar cotizaciones aprobadas, establecer precios finales de compra',
     permissions: [
-      'view_approved_quotes',   // Ver cotizaciones aprobadas
-      'view_providers',         // Ver proveedores
-      'create_purchase_orders', // Crear órdenes de compra (futuro)
-      'view_reports'            // Ver reportes de compras
+      'view_approved_quotes',     // Ver cotizaciones aprobadas
+      'set_final_purchase_price', // Establecer precio final de compra
+      'view_margin_differences',  // Ver diferencias de margen
+      'view_providers',           // Ver proveedores
+      'create_purchase_orders',   // Crear órdenes de compra (futuro)
+      'view_purchase_reports',    // Ver reportes de compras
+      'export_purchase_data'      // Exportar datos de compras
     ],
-    canQuote: false,           // Los compradores no cotizan
-    color: '#0369a1',          // Azul
+    canQuote: false,             // Los compradores no cotizan
+    color: '#0369a1',            // Azul
     icon: '🛒'
   },
   
@@ -124,6 +127,16 @@ export const isVendedor = (userRole) => {
   return userRole === USER_ROLES.VENDEDOR
 }
 
+// Función para verificar si un usuario es comprador
+export const isComprador = (userRole) => {
+  return userRole === USER_ROLES.COMPRADOR
+}
+
+// Función para verificar si un usuario es revisor
+export const isRevisor = (userRole) => {
+  return userRole === USER_ROLES.REVISOR
+}
+
 // Validación de datos de usuario
 export const validateUserData = (userData) => {
   const errors = []
@@ -186,6 +199,8 @@ export default {
   getAllRoles,
   isAdmin,
   isVendedor,
+  isComprador,
+  isRevisor,
   validateUserData,
   createUserStructure
 }

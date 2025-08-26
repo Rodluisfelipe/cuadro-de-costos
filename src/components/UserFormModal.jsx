@@ -10,7 +10,7 @@ import { userService } from '../lib/userService'
 import { getAllRoles, getRoleInfo } from '../lib/userRoles'
 
 const UserFormModal = ({ isOpen, onClose, user, onUserSaved }) => {
-  const { userProfile } = useAuth()
+  const { userProfile, userInfo } = useAuth()
   
   // Estados del formulario
   const [formData, setFormData] = useState({
@@ -121,7 +121,7 @@ const UserFormModal = ({ isOpen, onClose, user, onUserSaved }) => {
             phone: formData.phone.trim() || null,
             notes: formData.notes.trim() || null
           }
-        }, userProfile)
+        }, { ...userInfo, role: userProfile?.role })
       } else {
         // Crear nuevo usuario
         await userService.createUser({
@@ -134,7 +134,7 @@ const UserFormModal = ({ isOpen, onClose, user, onUserSaved }) => {
           phone: formData.phone.trim() || null,
           notes: formData.notes.trim() || null,
           createAuthAccount: formData.createAuthAccount
-        }, userProfile)
+        }, { ...userInfo, role: userProfile?.role })
       }
       
       onUserSaved()

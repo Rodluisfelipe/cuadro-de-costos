@@ -53,6 +53,8 @@ import NotificationToast from './NotificationToast.jsx'
 import AdditionalCostsModal from './AdditionalCostsModal.jsx'
 import PinValidationModal from './PinValidationModal.jsx'
 import UserManagement from './UserManagement.jsx'
+import BuyerPanel from './BuyerPanel.jsx'
+import RevisorPanel from './RevisorPanel.jsx'
 import useRealtimeNotifications from '../hooks/useRealtimeNotifications.jsx'
 import { providersManager } from '../lib/providersConfig.js'
 import { generatePinInfo, generateSecurityMessage, validatePinFormat } from '../lib/pinUtils.js'
@@ -73,6 +75,8 @@ const CostosTable = () => {
     canQuote, 
     checkPermission, 
     isUserAdmin,
+    isUserComprador,
+    isUserRevisor,
     logout 
   } = useAuth()
   
@@ -117,11 +121,17 @@ const CostosTable = () => {
       if (isUserAdmin()) {
         console.log('🔐 Mostrando panel de administrador')
         setShowUserManagement(true)
+      } else if (isUserComprador()) {
+        console.log('🛒 Mostrando panel de comprador')
+        setShowUserManagement(false)
+      } else if (isUserRevisor()) {
+        console.log('✅ Mostrando panel de revisor')
+        setShowUserManagement(false)
       } else {
         console.log('ℹ️ Usuario sin permisos de cotización')
       }
     }
-  }, [userRole, canQuote, isUserAdmin, roleInfo])
+  }, [userRole, canQuote, isUserAdmin, isUserComprador, isUserRevisor, roleInfo])
 
   // Función para obtener información del proveedor
   const getProviderInfo = (providerName) => {
@@ -1929,8 +1939,106 @@ ${securityMessage}
     )
   }
 
-  // Verificar si el usuario puede acceder al cotizador
-  if (!canQuote() && userRole && !isUserAdmin()) {
+  // Renderizar panel de comprador
+  if (isUserComprador()) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
+        {/* Header para compradores */}
+        <div className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <span className="text-2xl">🛒</span>
+                <div>
+                  <h1 className="text-xl font-bold text-gray-900 dark:text-white">
+                    Panel de Comprador
+                  </h1>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    {userInfo?.displayName} - {roleInfo?.name}
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex items-center space-x-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+              >
+                {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+              </Button>
+              
+              <Button variant="outline" onClick={logout} size="sm">
+                Cerrar Sesión
+              </Button>
+            </div>
+          </div>
+        </div>
+        
+        {/* Contenido del panel de comprador */}
+        <BuyerPanel />
+        
+        {/* Notificación Toast */}
+        <NotificationToast
+          notification={currentNotification}
+          onClose={dismissCurrentNotification}
+        />
+      </div>
+    )
+  }
+
+  // Renderizar panel de revisor
+  if (isUserRevisor()) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
+        {/* Header para revisores */}
+        <div className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <span className="text-2xl">✅</span>
+                <div>
+                  <h1 className="text-xl font-bold text-gray-900 dark:text-white">
+                    Panel de Revisor
+                  </h1>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    {userInfo?.displayName} - {roleInfo?.name}
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex items-center space-x-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+              >
+                {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+              </Button>
+              
+              <Button variant="outline" onClick={logout} size="sm">
+                Cerrar Sesión
+              </Button>
+            </div>
+          </div>
+        </div>
+        
+        {/* Contenido del panel de revisor */}
+        <RevisorPanel />
+        
+        {/* Notificación Toast */}
+        <NotificationToast
+          notification={currentNotification}
+          onClose={dismissCurrentNotification}
+        />
+      </div>
+    )
+  }
+
+  // Verificar si el usuario puede acceder al cotizador (solo vendedores)
+  if (!canQuote() && userRole && !isUserAdmin() && !isUserComprador() && !isUserRevisor()) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200 flex items-center justify-center">
         <div className="text-center max-w-md mx-auto p-6">
@@ -3310,8 +3418,8 @@ ${securityMessage}
                                     </div>
                                   </div>
                                 </div>
-                              </div>
-                            </motion.div>
+                  </div>
+                </motion.div>
                           ))}
                         </div>
 

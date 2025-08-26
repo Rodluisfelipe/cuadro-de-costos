@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react'
 import { authService } from '../lib/firebase'
 import { validateCompanyCode, COMPANY_ERROR_MESSAGES, getCompanyInfo } from '../lib/companyConfig'
 import { userService } from '../lib/userService'
-import { USER_ROLES, getRoleInfo, hasPermission, canCreateQuotes, isAdmin } from '../lib/userRoles'
+import { USER_ROLES, getRoleInfo, hasPermission, canCreateQuotes, isAdmin, isVendedor, isComprador, isRevisor } from '../lib/userRoles'
 
 const AuthContext = createContext()
 
@@ -302,6 +302,9 @@ export const AuthProvider = ({ children }) => {
     checkPermission,
     canQuote,
     isUserAdmin,
+    isUserVendedor: () => isVendedor(userRole),
+    isUserComprador: () => isComprador(userRole),
+    isUserRevisor: () => isRevisor(userRole),
     loadUserProfile,
     
     // Funciones de UI

@@ -114,10 +114,10 @@ export class UserService {
 
       console.log('📋 [UserService] Obteniendo todos los usuarios...')
 
+      // Consulta simplificada sin orderBy para evitar índices complejos
       const q = query(
         collection(db, this.collectionName),
-        where('companyId', '==', 'TECNOPHONE'),
-        orderBy('createdAt', 'desc')
+        where('companyId', '==', 'TECNOPHONE')
       )
 
       const querySnapshot = await getDocs(q)
@@ -133,6 +133,9 @@ export class UserService {
           lastLogin: doc.data().lastLogin?.toDate?.()?.toISOString() || doc.data().lastLogin
         })
       })
+
+      // Ordenar en el cliente por fecha de creación (más reciente primero)
+      users.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
 
       console.log(`✅ [UserService] ${users.length} usuarios obtenidos`)
       return users
