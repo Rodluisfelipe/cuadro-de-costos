@@ -365,7 +365,29 @@ const RevisorPanel = () => {
       setSelectedQuote(null)
       setSelectedOptions({})
       setItemComments({})
-      refreshCotizaciones()
+      
+      // Forzar refresco de cotizaciones y sincronización
+      try {
+        console.log('🔄 [RevisorPanel] Forzando refresco de cotizaciones...')
+        await refreshCotizaciones()
+        
+        // Forzar sincronización con Firebase si es necesario
+        if (window.location.pathname.includes('/revisor')) {
+          console.log('🔄 [RevisorPanel] Forzando sincronización con Firebase...')
+          // Emitir evento personalizado para notificar a otros componentes
+          window.dispatchEvent(new CustomEvent('cotizacionStatusChanged', {
+            detail: {
+              cotizacionId: selectedQuote.cotizacion_id || selectedQuote.id,
+              newStatus: approved ? 'approved' : 'revision_requested',
+              timestamp: Date.now()
+            }
+          }))
+        }
+        
+        console.log('✅ [RevisorPanel] Refresco y sincronización completados')
+      } catch (error) {
+        console.error('❌ [RevisorPanel] Error en refresco:', error)
+      }
       
     } catch (error) {
       console.error('❌ Error procesando aprobación:', error)

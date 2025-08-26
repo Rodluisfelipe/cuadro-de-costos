@@ -133,6 +133,33 @@ const CostosTable = () => {
     }
   }, [userRole, canQuote, isUserAdmin, isUserComprador, isUserRevisor, roleInfo])
 
+  // Escuchar cambios en las cotizaciones y refrescar automáticamente
+  useEffect(() => {
+    console.log('🔄 [CostosTable] Cambios detectados en cotizaciones, refrescando...')
+    refreshCotizaciones()
+  }, [refreshCotizaciones])
+
+  // Escuchar eventos de cambio de estado de cotizaciones
+  useEffect(() => {
+    const handleCotizacionStatusChanged = (event) => {
+      console.log('🔔 [CostosTable] Evento de cambio de estado recibido:', event.detail)
+      console.log('🔄 [CostosTable] Refrescando cotizaciones debido a cambio de estado...')
+      
+      // Refrescar cotizaciones después de un breve delay para asegurar que la BD esté actualizada
+      setTimeout(() => {
+        refreshCotizaciones()
+      }, 1000)
+    }
+
+    // Agregar listener para el evento personalizado
+    window.addEventListener('cotizacionStatusChanged', handleCotizacionStatusChanged)
+    
+    // Limpiar listener al desmontar
+    return () => {
+      window.removeEventListener('cotizacionStatusChanged', handleCotizacionStatusChanged)
+    }
+  }, [refreshCotizaciones])
+
   // Función para obtener información del proveedor
   const getProviderInfo = (providerName) => {
     if (!providerName) return null
@@ -928,16 +955,16 @@ const CostosTable = () => {
 
     try {
       // Preparar la cotización
-      const quote = {
+    const quote = {
         cotizacion_id: editingQuote ? editingQuote.cotizacion_id : generateUniqueId(),
-        clienteName: clienteName.trim(),
-        trmGlobal,
-        rows,
-        totalGeneral: rows.reduce((sum, row) => sum + (row.pvpTotal || 0), 0),
-        date: editingQuote ? editingQuote.date : new Date().toISOString(),
-        dateFormatted: editingQuote ? editingQuote.dateFormatted : new Date().toLocaleString('es-CO'),
-        status: 'pending_approval',
-        trmOficial: oficialTRM,
+      clienteName: clienteName.trim(),
+      trmGlobal,
+      rows,
+      totalGeneral: rows.reduce((sum, row) => sum + (row.pvpTotal || 0), 0),
+      date: editingQuote ? editingQuote.date : new Date().toISOString(),
+      dateFormatted: editingQuote ? editingQuote.dateFormatted : new Date().toLocaleString('es-CO'),
+      status: 'pending_approval',
+      trmOficial: oficialTRM,
         lastTrmUpdate: lastTrmUpdate,
         // Información del vendedor
         vendorName: userInfo?.displayName || userInfo?.email || 'Vendedor',
@@ -987,6 +1014,21 @@ const CostosTable = () => {
       setClienteName('')
       setRows([])
       setEditingQuote(null)
+      
+      // Refrescar cotizaciones para mostrar la nueva cotización pendiente
+      console.log('🔄 [DEBUG] Refrescando cotizaciones después de enviar a aprobación...')
+      await refreshCotizaciones()
+      
+      // Emitir evento para notificar a otros componentes
+      window.dispatchEvent(new CustomEvent('cotizacionStatusChanged', {
+        detail: {
+          cotizacionId: quote.cotizacion_id,
+          newStatus: 'pending_approval',
+          timestamp: Date.now()
+        }
+      }))
+      
+      console.log('✅ [DEBUG] Proceso completo de envío a aprobación finalizado')
       
     } catch (error) {
       console.error('❌ Error enviando cotización para aprobación:', error)
@@ -2432,6 +2474,24 @@ const CostosTable = () => {
                 <div className="text-xs text-gray-500 dark:text-gray-400">❌ Rechazadas</div>
               </div>
             </div>
+          </div>
+          
+          {/* Botón de refrescar */}
+          <div className="flex justify-center mt-3">
+            <button
+              onClick={() => {
+                console.log('🔄 [CostosTable] Refresco manual solicitado...')
+                refreshCotizaciones()
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white rounded-lg shadow-md hover:shadow-lg transition-all duration-200 text-sm font-medium"
+              title="Refrescar cotizaciones"
+            >
+              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Refrescar
+            </button>
           </div>
         </motion.div>
       )}
