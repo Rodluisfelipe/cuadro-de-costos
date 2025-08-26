@@ -5,7 +5,7 @@ import { purchaseService } from '../lib/purchaseService'
 
 const BuyerPanel = () => {
   const { userProfile, userRole, checkPermission } = useAuth()
-  const { cotizaciones, refetchCotizaciones } = useCotizaciones()
+  const { cotizaciones, refreshCotizaciones } = useCotizaciones()
   const [approvedQuotes, setApprovedQuotes] = useState([])
   const [selectedQuote, setSelectedQuote] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -77,7 +77,7 @@ const BuyerPanel = () => {
         }))
 
         // Refrescar cotizaciones para mostrar datos actualizados
-        await refetchCotizaciones()
+        refreshCotizaciones()
 
         // Mostrar mensaje de éxito (aquí se puede agregar un toast)
         console.log('✅ Precio final actualizado exitosamente')

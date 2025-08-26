@@ -589,7 +589,9 @@ const RevisorPanel = () => {
                 variant="outline"
                 size="sm"
                 onClick={async () => {
-                  // Crear cotización de prueba
+                  console.log('🧪 [DEBUG] Creando cotización de prueba...')
+                  
+                  // Crear cotización de prueba usando el hook
                   const testQuote = {
                     cotizacion_id: `TEST-${Date.now()}`,
                     clienteName: 'Cliente de Prueba',
@@ -598,6 +600,8 @@ const RevisorPanel = () => {
                     status: 'pending_approval',
                     totalGeneral: 1500000,
                     trmGlobal: oficialTRM || 4200,
+                    date: new Date().toISOString(),
+                    dateFormatted: new Date().toLocaleString('es-CO'),
                     rows: [
                       {
                         id: 1,
@@ -617,17 +621,17 @@ const RevisorPanel = () => {
                       },
                       {
                         id: 2,
-                        itemName: 'Laptop HP',
-                        itemDescription: 'Laptop HP Pavilion',
+                        itemName: 'Monitor Dell',
+                        itemDescription: 'Monitor Dell 24"',
                         mayorista: 'Distribuidor B',
-                        marca: 'HP',
-                        referencia: 'Pavilion 15',
-                        configuracion: 'Intel i7, 16GB RAM, 512GB SSD',
+                        marca: 'Dell',
+                        referencia: 'DELL-24',
+                        configuracion: '24", Full HD, HDMI',
                         cantidad: 1,
-                        costoUSD: 700,
-                        costoCOP: 2940000,
-                        pvpUnitario: 1800000,
-                        pvpTotal: 1800000,
+                        costoUSD: 200,
+                        costoCOP: 840000,
+                        pvpUnitario: 800000,
+                        pvpTotal: 800000,
                         margen: 25,
                         trm: oficialTRM || 4200
                       }
@@ -641,6 +645,8 @@ const RevisorPanel = () => {
                     await saveCotizacion(testQuote)
                     console.log('✅ Cotización de prueba creada')
                     alert('✅ Cotización de prueba creada. Revisa el panel.')
+                    // Recargar datos
+                    refreshCotizaciones()
                   } catch (error) {
                     console.error('❌ Error creando cotización de prueba:', error)
                     alert('❌ Error creando cotización de prueba')
@@ -781,12 +787,28 @@ const RevisorPanel = () => {
              <h3 className="text-xl font-semibold text-gray-900 mb-3">
                No hay cotizaciones {filter === 'pending' ? 'pendientes' : 'en esta categoría'}
              </h3>
-             <p className="text-gray-600 max-w-md mx-auto">
+             <p className="text-gray-600 max-w-md mx-auto mb-6">
                {filter === 'pending' 
                  ? 'Las cotizaciones enviadas para aprobación aparecerán aquí.'
                  : 'No se encontraron cotizaciones con el filtro seleccionado.'
                }
              </p>
+             
+             {/* Información de debug */}
+             <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl p-4 border border-yellow-200/50 max-w-md mx-auto">
+               <div className="flex items-center gap-2 mb-2">
+                 <AlertCircle className="w-4 h-4 text-yellow-600" />
+                 <span className="text-sm font-medium text-yellow-700">Información de Debug</span>
+               </div>
+               <div className="text-sm text-gray-700 space-y-1">
+                 <div>• Total de cotizaciones: {cotizaciones?.length || 0}</div>
+                 <div>• Filtro actual: {filter}</div>
+                 <div>• Estados disponibles: {cotizaciones ? [...new Set(cotizaciones.map(q => q.status).filter(Boolean))].join(', ') : 'N/A'}</div>
+               </div>
+               <div className="mt-3 text-xs text-gray-500">
+                 💡 Usa el botón "Crear Test" para generar una cotización de prueba
+               </div>
+             </div>
            </motion.div>
          ) : (
            <div className="grid gap-6">
