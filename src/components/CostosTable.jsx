@@ -52,6 +52,7 @@ import FirstItemModal from './FirstItemModal.jsx'
 import NotificationToast from './NotificationToast.jsx'
 import AdditionalCostsModal from './AdditionalCostsModal.jsx'
 import PinValidationModal from './PinValidationModal.jsx'
+import UserManagement from './UserManagement.jsx'
 import useRealtimeNotifications from '../hooks/useRealtimeNotifications.jsx'
 import { providersManager } from '../lib/providersConfig.js'
 import { generatePinInfo, generateSecurityMessage, validatePinFormat } from '../lib/pinUtils.js'
@@ -64,8 +65,16 @@ const APP_BASE_URL = 'https://cuadro-de-costos.vercel.app'
 const CostosTable = () => {
   const { theme, setTheme } = useTheme()
   
-  // Hook de autenticación
-  const { userInfo, logout } = useAuth()
+  // Hook de autenticación y roles
+  const { 
+    userInfo, 
+    userRole, 
+    roleInfo, 
+    canQuote, 
+    checkPermission, 
+    isUserAdmin,
+    logout 
+  } = useAuth()
   
   // Hook para manejar cotizaciones con Dexie + Firebase
   const {
@@ -98,6 +107,21 @@ const CostosTable = () => {
       return () => clearTimeout(timer)
     }
   }, [currentNotification, dismissCurrentNotification])
+
+  // Verificar permisos al cargar
+  useEffect(() => {
+    // Si el usuario no puede cotizar, mostrar interfaz apropiada según su rol
+    if (!canQuote() && userRole) {
+      console.log(`👤 Usuario con rol ${userRole} - ${roleInfo?.name}`)
+      
+      if (isUserAdmin()) {
+        console.log('🔐 Mostrando panel de administrador')
+        setShowUserManagement(true)
+      } else {
+        console.log('ℹ️ Usuario sin permisos de cotización')
+      }
+    }
+  }, [userRole, canQuote, isUserAdmin, roleInfo])
 
   // Función para obtener información del proveedor
   const getProviderInfo = (providerName) => {
@@ -313,6 +337,9 @@ const CostosTable = () => {
   // Estados para costos adicionales
   const [showAdditionalCostsModal, setShowAdditionalCostsModal] = useState(false)
   const [selectedRowForCosts, setSelectedRowForCosts] = useState(null)
+  
+  // Estados para sistema de roles
+  const [showUserManagement, setShowUserManagement] = useState(false)
 
   // Estados para PIN de seguridad
   const [showPinValidation, setShowPinValidation] = useState(false)
@@ -1842,6 +1869,91 @@ ${securityMessage}
       </Card>
     </motion.div>
   ))
+
+  // Renderizado condicional según el rol del usuario
+  if (showUserManagement && isUserAdmin()) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
+        {/* Header para administradores */}
+        <div className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <span className="text-2xl">👑</span>
+                <div>
+                  <h1 className="text-xl font-bold text-gray-900 dark:text-white">
+                    Panel de Administrador
+                  </h1>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    {userInfo?.displayName} - {roleInfo?.name}
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex items-center space-x-3">
+              <Button
+                variant="outline"
+                onClick={() => setShowUserManagement(false)}
+                className="text-sm"
+              >
+                Ver Cotizador
+              </Button>
+              
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+              >
+                {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+              </Button>
+              
+              <Button variant="outline" onClick={logout} size="sm">
+                Cerrar Sesión
+              </Button>
+            </div>
+          </div>
+        </div>
+        
+        {/* Contenido del panel de administrador */}
+        <div className="p-6">
+          <UserManagement />
+        </div>
+        
+        {/* Notificación Toast */}
+        <NotificationToast
+          notification={currentNotification}
+          onClose={dismissCurrentNotification}
+        />
+      </div>
+    )
+  }
+
+  // Verificar si el usuario puede acceder al cotizador
+  if (!canQuote() && userRole && !isUserAdmin()) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200 flex items-center justify-center">
+        <div className="text-center max-w-md mx-auto p-6">
+          <div className="text-6xl mb-4">{roleInfo?.icon || '👤'}</div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+            {roleInfo?.name || 'Usuario'}
+          </h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-6">
+            {roleInfo?.description || 'Rol sin permisos de cotización'}
+          </p>
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
+            <p className="text-blue-800 dark:text-blue-200 text-sm">
+              Tu rol actual no tiene permisos para crear cotizaciones. 
+              Las funcionalidades específicas para tu rol estarán disponibles próximamente.
+            </p>
+          </div>
+          <Button variant="outline" onClick={logout}>
+            Cerrar Sesión
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">

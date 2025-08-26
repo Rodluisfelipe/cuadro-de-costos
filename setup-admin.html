@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup Administrador - TECNOPHONE</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            background: #f5f5f5; 
+            max-width: 800px;
+            margin: 20px auto;
+        }
+        .container { 
+            background: white; 
+            padding: 30px; 
+            border-radius: 10px; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .result { 
+            margin: 10px 0; 
+            padding: 15px; 
+            border-radius: 5px; 
+            font-family: monospace;
+        }
+        .success { 
+            background: #d4edda; 
+            color: #155724; 
+            border: 1px solid #c3e6cb; 
+        }
+        .error { 
+            background: #f8d7da; 
+            color: #721c24; 
+            border: 1px solid #f5c6cb; 
+        }
+        .info { 
+            background: #d1ecf1; 
+            color: #0c5460; 
+            border: 1px solid #bee5eb; 
+        }
+        .warning { 
+            background: #fff3cd; 
+            color: #856404; 
+            border: 1px solid #ffeaa7; 
+        }
+        button { 
+            padding: 12px 24px; 
+            margin: 10px 5px; 
+            border: none; 
+            border-radius: 5px; 
+            cursor: pointer; 
+            font-size: 16px;
+        }
+        .btn-primary { 
+            background: #007bff; 
+            color: white; 
+        }
+        .btn-success { 
+            background: #28a745; 
+            color: white; 
+        }
+        .btn-danger { 
+            background: #dc3545; 
+            color: white; 
+        }
+        input { 
+            padding: 10px; 
+            border: 1px solid #ddd; 
+            border-radius: 5px; 
+            width: 100%; 
+            margin: 5px 0; 
+        }
+        .form-group { 
+            margin: 15px 0; 
+        }
+        label { 
+            display: block; 
+            font-weight: bold; 
+            margin-bottom: 5px; 
+        }
+        pre {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔥 Setup Administrador - TECNOPHONE</h1>
+        <p>Esta herramienta te ayudará a crear el primer usuario administrador del sistema.</p>
+        
+        <div id="status" class="result info">
+            <strong>Estado:</strong> Listo para configurar administrador
+        </div>
+
+        <div class="form-group">
+            <label>Email del Administrador:</label>
+            <input type="email" id="adminEmail" value="pipe95141007@gmail.com" placeholder="admin@tecnophone.com">
+        </div>
+
+        <div class="form-group">
+            <label>Nombre Completo:</label>
+            <input type="text" id="adminName" value="Administrador Principal" placeholder="Juan Pérez">
+        </div>
+
+        <div class="form-group">
+            <label>Departamento (opcional):</label>
+            <input type="text" id="adminDept" value="Administración" placeholder="Administración">
+        </div>
+
+        <div class="form-group">
+            <button class="btn-primary" onclick="checkCurrentUser()">1️⃣ Verificar Usuario Actual</button>
+            <button class="btn-success" onclick="createAdmin()">2️⃣ Crear Administrador</button>
+            <button class="btn-danger" onclick="clearResults()">🧹 Limpiar</button>
+        </div>
+
+        <div id="results"></div>
+        
+        <div class="result warning">
+            <strong>⚠️ Importante:</strong>
+            <ul>
+                <li>Asegúrate de estar logueado con el email que quieres hacer administrador</li>
+                <li>Solo ejecuta esto UNA vez</li>
+                <li>Una vez creado el admin, puedes crear más usuarios desde el panel</li>
+            </ul>
+        </div>
+    </div>
+
+    <script type="module">
+        // Import Firebase modules
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js'
+        import { 
+            getFirestore, 
+            collection, 
+            addDoc,
+            query,
+            where,
+            getDocs,
+            serverTimestamp
+        } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js'
+        import {
+            getAuth,
+            onAuthStateChanged
+        } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js'
+
+        // Firebase config
+        const firebaseConfig = {
+            apiKey: "AIzaSyDg6Mwzw9aLxsxDqxZyqTNdXAbZWudtz0A",
+            authDomain: "cotizador-ebd54.firebaseapp.com",
+            projectId: "cotizador-ebd54",
+            storageBucket: "cotizador-ebd54.firebasestorage.app",
+            messagingSenderId: "627582491863",
+            appId: "1:627582491863:web:3bbd09e9850e69f1eae492"
+        }
+
+        let app, db, auth, currentUser
+        let results = []
+
+        // Initialize Firebase
+        try {
+            app = initializeApp(firebaseConfig)
+            db = getFirestore(app)
+            auth = getAuth(app)
+            
+            onAuthStateChanged(auth, (user) => {
+                currentUser = user
+                if (user) {
+                    addResult(`✅ Usuario autenticado: ${user.email}`, 'success')
+                } else {
+                    addResult(`⚠️ No hay usuario autenticado`, 'warning')
+                }
+            })
+            
+            addResult('✅ Firebase inicializado correctamente', 'success')
+        } catch (error) {
+            addResult('❌ Error inicializando Firebase: ' + error.message, 'error')
+        }
+
+        // Helper functions
+        function addResult(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString()
+            results.push({ message, type, timestamp })
+            updateResultsDisplay()
+        }
+
+        function updateResultsDisplay() {
+            const resultsDiv = document.getElementById('results')
+            resultsDiv.innerHTML = results.map(result => 
+                `<div class="result ${result.type}">
+                    <strong>[${result.timestamp}]</strong> ${result.message}
+                </div>`
+            ).join('')
+            resultsDiv.scrollTop = resultsDiv.scrollHeight
+        }
+
+        function updateStatus(message) {
+            document.getElementById('status').innerHTML = `<strong>Estado:</strong> ${message}`
+        }
+
+        // Check current user
+        window.checkCurrentUser = async function() {
+            updateStatus('Verificando usuario actual...')
+            
+            if (!currentUser) {
+                addResult('❌ No hay usuario autenticado. Por favor inicia sesión primero.', 'error')
+                addResult('💡 Ve a tu aplicación, inicia sesión, y luego regresa aquí.', 'info')
+                return
+            }
+
+            addResult(`👤 Usuario actual: ${currentUser.email}`, 'success')
+            addResult(`🔑 UID: ${currentUser.uid}`, 'info')
+            addResult(`📧 Email verificado: ${currentUser.emailVerified ? 'Sí' : 'No'}`, 
+                currentUser.emailVerified ? 'success' : 'warning')
+
+            // Check if user already exists in Firestore
+            try {
+                const usersRef = collection(db, 'users')
+                const q = query(usersRef, where('email', '==', currentUser.email))
+                const querySnapshot = await getDocs(q)
+                
+                if (!querySnapshot.empty) {
+                    const userData = querySnapshot.docs[0].data()
+                    addResult(`⚠️ Usuario ya existe en Firestore con rol: ${userData.role}`, 'warning')
+                    addResult(`📋 Datos actuales:`, 'info')
+                    addResult(`<pre>${JSON.stringify(userData, null, 2)}</pre>`, 'info')
+                } else {
+                    addResult(`✅ Usuario no existe en Firestore - Listo para crear admin`, 'success')
+                }
+            } catch (error) {
+                addResult(`❌ Error verificando usuario: ${error.message}`, 'error')
+            }
+
+            updateStatus('Usuario verificado')
+        }
+
+        // Create admin user
+        window.createAdmin = async function() {
+            if (!currentUser) {
+                addResult('❌ Primero verifica el usuario actual', 'error')
+                return
+            }
+
+            const email = document.getElementById('adminEmail').value.trim()
+            const name = document.getElementById('adminName').value.trim()
+            const dept = document.getElementById('adminDept').value.trim()
+
+            if (!email || !name) {
+                addResult('❌ Email y nombre son requeridos', 'error')
+                return
+            }
+
+            if (email !== currentUser.email) {
+                addResult('❌ El email debe coincidir con el usuario autenticado', 'error')
+                addResult(`💡 Usuario actual: ${currentUser.email}`, 'info')
+                return
+            }
+
+            updateStatus('Creando administrador...')
+
+            try {
+                const adminData = {
+                    email: email.toLowerCase(),
+                    displayName: name,
+                    role: 'admin',
+                    companyId: 'TECNOPHONE',
+                    firebaseUid: currentUser.uid,
+                    isActive: true,
+                    permissions: [
+                        'manage_users',
+                        'manage_providers',
+                        'view_all_quotes',
+                        'manage_settings',
+                        'view_reports',
+                        'manage_roles'
+                    ],
+                    metadata: {
+                        department: dept || null,
+                        phone: null,
+                        notes: 'Usuario administrador principal creado automáticamente'
+                    },
+                    createdAt: serverTimestamp(),
+                    updatedAt: serverTimestamp(),
+                    createdBy: 'system',
+                    lastLogin: null
+                }
+
+                const docRef = await addDoc(collection(db, 'users'), adminData)
+                
+                addResult(`✅ ¡Administrador creado exitosamente!`, 'success')
+                addResult(`📋 ID del documento: ${docRef.id}`, 'info')
+                addResult(`👤 Email: ${adminData.email}`, 'info')
+                addResult(`🎭 Rol: ${adminData.role}`, 'info')
+                addResult(`🏢 Empresa: ${adminData.companyId}`, 'info')
+                
+                addResult(`🎉 ¡Listo! Ahora puedes:`, 'success')
+                addResult(`1️⃣ Recargar tu aplicación`, 'info')
+                addResult(`2️⃣ El sistema detectará automáticamente tu rol de administrador`, 'info')
+                addResult(`3️⃣ Tendrás acceso al Panel de Administrador`, 'info')
+                addResult(`4️⃣ Podrás crear más usuarios desde la interfaz`, 'info')
+
+                updateStatus('Administrador creado exitosamente')
+
+            } catch (error) {
+                addResult(`❌ Error creando administrador: ${error.message}`, 'error')
+                addResult(`🔍 Código de error: ${error.code}`, 'error')
+                
+                if (error.code === 'permission-denied') {
+                    addResult(`💡 Asegúrate de que las reglas de Firestore estén aplicadas`, 'warning')
+                    addResult(`📋 Archivo: firestore-rules-updated.txt`, 'info')
+                }
+                
+                updateStatus('Error creando administrador')
+            }
+        }
+
+        window.clearResults = function() {
+            results = []
+            updateResultsDisplay()
+            updateStatus('Listo para configurar administrador')
+        }
+
+        // Make functions global
+        window.addResult = addResult
+        window.updateStatus = updateStatus
+    </script>
+</body>
+</html>

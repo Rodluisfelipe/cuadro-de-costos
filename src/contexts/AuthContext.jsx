@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
 import { authService } from '../lib/firebase'
 import { validateCompanyCode, COMPANY_ERROR_MESSAGES, getCompanyInfo } from '../lib/companyConfig'
+import { userService } from '../lib/userService'
+import { USER_ROLES, getRoleInfo, hasPermission, canCreateQuotes, isAdmin } from '../lib/userRoles'
 
 const AuthContext = createContext()
 
@@ -23,24 +25,90 @@ export const AuthProvider = ({ children }) => {
   const [companyCode, setCompanyCode] = useState('')
   const [companyCodeValidated, setCompanyCodeValidated] = useState(false)
 
+  // Estados para sistema de roles
+  const [userProfile, setUserProfile] = useState(null)
+  const [userRole, setUserRole] = useState(null)
+  const [roleInfo, setRoleInfo] = useState(null)
+  const [loadingProfile, setLoadingProfile] = useState(false)
+
   useEffect(() => {
     console.log('🔐 [Auth] Inicializando contexto de autenticación...')
     
-    const unsubscribe = authService.onAuthStateChange((user) => {
+    const unsubscribe = authService.onAuthStateChange(async (user) => {
       console.log('🔄 [Auth] Estado de autenticación cambió:', user ? user.email : 'sin usuario')
       
       setCurrentUser(user)
-      setLoading(false)
       
-      // Si el usuario se loguea, cerrar modal
       if (user) {
+        // Cargar perfil del usuario desde Firestore
+        await loadUserProfile(user)
         setShowAuthModal(false)
         setError(null)
+      } else {
+        // Limpiar datos de perfil al cerrar sesión
+        setUserProfile(null)
+        setUserRole(null)
+        setRoleInfo(null)
       }
+      
+      setLoading(false)
     })
 
     return unsubscribe
   }, [])
+
+  // Cargar perfil del usuario desde Firestore
+  const loadUserProfile = async (user) => {
+    try {
+      setLoadingProfile(true)
+      console.log('👤 [Auth] Cargando perfil del usuario:', user.email)
+      
+      const profile = await userService.getUserByEmail(user.email)
+      
+      if (profile) {
+        setUserProfile(profile)
+        setUserRole(profile.role)
+        setRoleInfo(getRoleInfo(profile.role))
+        
+        // Actualizar último login
+        await userService.updateLastLogin(profile.id)
+        
+        console.log('✅ [Auth] Perfil cargado:', {
+          role: profile.role,
+          permissions: profile.permissions
+        })
+      } else {
+        // Usuario autenticado pero sin perfil en Firestore
+        console.warn('⚠️ [Auth] Usuario autenticado pero sin perfil en sistema')
+        setUserProfile(null)
+        setUserRole(USER_ROLES.VENDEDOR) // Rol por defecto para compatibilidad
+        setRoleInfo(getRoleInfo(USER_ROLES.VENDEDOR))
+      }
+      
+    } catch (error) {
+      console.error('❌ [Auth] Error cargando perfil:', error)
+      // En caso de error, asignar rol por defecto
+      setUserRole(USER_ROLES.VENDEDOR)
+      setRoleInfo(getRoleInfo(USER_ROLES.VENDEDOR))
+    } finally {
+      setLoadingProfile(false)
+    }
+  }
+
+  // Verificar si el usuario tiene un permiso específico
+  const checkPermission = (permission) => {
+    return hasPermission(userRole, permission)
+  }
+
+  // Verificar si el usuario puede crear cotizaciones
+  const canQuote = () => {
+    return canCreateQuotes(userRole)
+  }
+
+  // Verificar si el usuario es administrador
+  const isUserAdmin = () => {
+    return isAdmin(userRole)
+  }
 
   // Validar código de empresa
   const validateCompanyCodeHandler = (code) => {
@@ -211,6 +279,12 @@ export const AuthProvider = ({ children }) => {
     error,
     isAuthenticated,
     
+    // Sistema de roles
+    userProfile,
+    userRole,
+    roleInfo,
+    loadingProfile,
+    
     // Modal state
     showAuthModal,
     authMode,
@@ -223,6 +297,12 @@ export const AuthProvider = ({ children }) => {
     logout,
     resetPassword,
     validateCompanyCode: validateCompanyCodeHandler,
+    
+    // Funciones de roles y permisos
+    checkPermission,
+    canQuote,
+    isUserAdmin,
+    loadUserProfile,
     
     // Funciones de UI
     openAuthModal,

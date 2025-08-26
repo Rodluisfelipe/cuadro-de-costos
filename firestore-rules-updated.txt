@@ -50,9 +50,50 @@ service cloud.firestore {
     
     // Reglas para la colección de usuarios
     match /users/{userId} {
-      // Permitir lectura/escritura solo si es el propio usuario
-      allow read, write: if request.auth != null && 
-        resource.data.uid == request.auth.uid;
+      // LECTURA: Permitir si:
+      // - Es administrador de TECNOPHONE
+      // - O es el propio usuario
+      allow read: if request.auth != null && 
+        (
+          // Administrador puede ver todos los usuarios de TECNOPHONE
+          (request.auth.token.email != null && 
+           exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId == 'TECNOPHONE' &&
+           resource.data.companyId == 'TECNOPHONE') ||
+          
+          // Usuario puede ver su propio perfil
+          resource.data.firebaseUid == request.auth.uid
+        );
+      
+      // CREACIÓN: Solo administradores de TECNOPHONE
+      allow create: if request.auth != null && 
+        request.resource.data.companyId == 'TECNOPHONE' &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId == 'TECNOPHONE';
+      
+      // ACTUALIZACIÓN: Solo administradores o el propio usuario
+      allow update: if request.auth != null && 
+        resource.data.companyId == 'TECNOPHONE' &&
+        (
+          // Administrador puede actualizar cualquier usuario de TECNOPHONE
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId == 'TECNOPHONE') ||
+          
+          // Usuario puede actualizar su propio perfil (campos limitados)
+          (resource.data.firebaseUid == request.auth.uid &&
+           !('role' in request.resource.data.diff(resource.data).affectedKeys()) &&
+           !('companyId' in request.resource.data.diff(resource.data).affectedKeys()))
+        );
+      
+      // ELIMINACIÓN: Solo administradores
+      allow delete: if request.auth != null && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId == 'TECNOPHONE' &&
+        resource.data.companyId == 'TECNOPHONE';
     }
     
     // Reglas para la colección de proveedores
