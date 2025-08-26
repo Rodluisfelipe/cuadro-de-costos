@@ -3675,12 +3675,64 @@ if (typeof window !== 'undefined') {
         console.error('❌ [Debug] Error limpiando datos:', error)
         return { error: error.message }
       }
+    },
+    
+    // Forzar sincronización solo de cotizaciones
+    async forceQuotesSync() {
+      try {
+        console.log('🔄 [Debug] Sincronizando solo cotizaciones...')
+        const { hybridDB } = await import('../lib/hybridDatabase')
+        await hybridDB.forcSync()
+        console.log('✅ [Debug] Sincronización de cotizaciones completada')
+        return { success: true, message: 'Cotizaciones sincronizadas' }
+      } catch (error) {
+        console.error('❌ [Debug] Error sincronizando cotizaciones:', error)
+        return { success: false, error: error.message }
+      }
+    },
+    
+    // Crear cotización de prueba
+    async createTestQuote() {
+      try {
+        const testQuote = {
+          cotizacion_id: `TEST-${Date.now()}`,
+          clienteName: 'Cliente de Prueba',
+          date: new Date().toISOString().split('T')[0],
+          rows: [
+            {
+              id: 1,
+              item: 1,
+              cantidad: 1,
+              mayorista: 'Proveedor Test',
+              marca: 'Test Brand',
+              referencia: 'TEST-001',
+              configuracion: 'Configuración de prueba',
+              costoUSD: 100,
+              pvpTotal: 150
+            }
+          ],
+          totalGeneral: 150,
+          companyId: 'TECNOPHONE',
+          status: 'draft'
+        }
+        
+        const { hybridDB } = await import('../lib/hybridDatabase')
+        const result = await hybridDB.create(testQuote)
+        
+        console.log('✅ [Debug] Cotización de prueba creada:', result)
+        return { success: true, quote: testQuote, result }
+      } catch (error) {
+        console.error('❌ [Debug] Error creando cotización de prueba:', error)
+        return { success: false, error: error.message }
+      }
     }
   }
   
   console.log('🛠️ [Debug] Herramientas de sincronización disponibles:')
   console.log('   window.debugSync.forceFullSync() - Forzar sincronización completa')
+  console.log('   window.debugSync.forceQuotesSync() - Sincronizar solo cotizaciones')
   console.log('   window.debugSync.checkLocalData() - Verificar datos locales')
+  console.log('   window.debugSync.createTestQuote() - Crear cotización de prueba')
   console.log('   window.debugSync.clearLocalData() - Limpiar datos locales')
 }
 

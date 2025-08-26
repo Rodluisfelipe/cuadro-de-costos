@@ -6,7 +6,7 @@ export class HybridDatabase {
   constructor() {
     this.isOnline = navigator.onLine
     this.syncInProgress = false
-    this.companyId = 'default' // Por ahora usar default, luego se puede personalizar
+    this.companyId = 'TECNOPHONE' // Empresa fija para cumplir reglas de Firestore
     
     // Escuchar cambios de conectividad
     window.addEventListener('online', () => {

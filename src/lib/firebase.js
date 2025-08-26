@@ -92,10 +92,18 @@ export const firebaseQuotesService = {
         ...cotizacion,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-        // Campos adicionales para multi-empresa
-        companyId: cotizacion.companyId || 'default',
-        createdBy: cotizacion.createdBy || 'anonymous'
+        // Campos requeridos por las reglas de Firestore
+        companyId: 'TECNOPHONE', // Siempre TECNOPHONE (requerido por reglas)
+        createdBy: cotizacion.createdBy || 'anonymous',
+        userEmail: cotizacion.userEmail || null
       }
+      
+      console.log('🔍 [Debug] Datos preparados para Firebase:', {
+        companyId: cotizacionData.companyId,
+        createdBy: cotizacionData.createdBy,
+        userEmail: cotizacionData.userEmail,
+        cotizacion_id: cotizacionData.cotizacion_id
+      })
       
       console.log('🔥 Creando cotización en Firebase...')
       const docRef = await addDoc(collection(db, 'cotizaciones'), cotizacionData)
@@ -109,7 +117,7 @@ export const firebaseQuotesService = {
   },
 
   // Obtener todas las cotizaciones
-  async getAll(companyId = 'default') {
+  async getAll(companyId = 'TECNOPHONE') {
     try {
       if (!db) throw new Error('Firebase no inicializado')
       
