@@ -14,6 +14,10 @@ import { formatCurrency } from '../lib/utils'
 const RevisorPanel = () => {
   const { userProfile, userRole, checkPermission } = useAuth()
   const { cotizaciones, saveCotizacion, refreshCotizaciones } = useCotizaciones()
+  
+  console.log('🚀 [RevisorPanel] Componente montado')
+  console.log('🚀 [RevisorPanel] Hook useCotizaciones ejecutado')
+  console.log('🚀 [RevisorPanel] cotizaciones del hook:', cotizaciones)
   const [pendingQuotes, setPendingQuotes] = useState([])
   const [selectedQuote, setSelectedQuote] = useState(null)
   const [showQuoteDetail, setShowQuoteDetail] = useState(false)
@@ -200,13 +204,13 @@ const RevisorPanel = () => {
       let itemId = row.itemId
       if (!itemId) {
         if (row.itemName) {
-          itemId = `item-${row.itemName.replace(/\s+/g, '-').toLowerCase()}`
+          itemId = `item-${row.itemName.replace(/\s+/g, '-').toLowerCase()}-${index}`
         } else if (row.configuracion) {
-          itemId = `item-${row.configuracion.replace(/\s+/g, '-').toLowerCase()}`
+          itemId = `item-${row.configuracion.replace(/\s+/g, '-').toLowerCase()}-${index}`
         } else if (row.marca && row.referencia) {
-          itemId = `item-${row.marca}-${row.referencia}`.replace(/\s+/g, '-').toLowerCase()
+          itemId = `item-${row.marca}-${row.referencia}-${index}`.replace(/\s+/g, '-').toLowerCase()
         } else {
-          itemId = `item-${row.id || index}`
+          itemId = `item-${row.id || index}-${Date.now()}`
         }
       }
 
@@ -656,6 +660,45 @@ const RevisorPanel = () => {
               >
                 <Zap className="w-4 h-4 mr-2" />
                 Crear Test
+              </Button>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  console.log('🔍 [DEBUG] Verificando estado de la base de datos...')
+                  
+                  try {
+                    // Verificar IndexedDB directamente
+                    const db = indexedDB.open('CotizacionesDB', 1)
+                    db.onsuccess = function(event) {
+                      const database = event.target.result
+                      const transaction = database.transaction(['cotizaciones'], 'readonly')
+                      const store = transaction.objectStore('cotizaciones')
+                      const request = store.getAll()
+                      
+                      request.onsuccess = function() {
+                        const cotizacionesDB = request.result
+                        console.log('🔍 [IndexedDB] Total de cotizaciones:', cotizacionesDB.length)
+                        console.log('🔍 [IndexedDB] Todas las cotizaciones:', cotizacionesDB)
+                        
+                        const pendingQuotes = cotizacionesDB.filter(q => 
+                          q.status === 'pending' || q.status === 'sent_for_approval' || q.status === 'pending_approval'
+                        )
+                        console.log('🔍 [IndexedDB] Cotizaciones pendientes:', pendingQuotes)
+                        
+                        alert(`📊 Base de datos:\n• Total: ${cotizacionesDB.length}\n• Pendientes: ${pendingQuotes.length}\n\nRevisa la consola para más detalles.`)
+                      }
+                    }
+                  } catch (error) {
+                    console.error('❌ Error verificando BD:', error)
+                    alert('❌ Error verificando la base de datos')
+                  }
+                }}
+                className="bg-orange-50 hover:bg-orange-100 border-orange-200 text-orange-700"
+              >
+                <Database className="w-4 h-4 mr-2" />
+                Verificar BD
               </Button>
             </div>
           </div>
@@ -1172,7 +1215,7 @@ const RevisorPanel = () => {
                      <div className="space-y-8">
                        {getGroupedApprovalRows(selectedQuote.rows).map((group, groupIndex) => (
                          <motion.div
-                           key={group.item.id}
+                           key={`${selectedQuote.cotizacion_id}-${group.item.id}-${groupIndex}`}
                            initial={{ opacity: 0, y: 20 }}
                            animate={{ opacity: 1, y: 0 }}
                            transition={{ delay: groupIndex * 0.1 }}
@@ -1189,7 +1232,7 @@ const RevisorPanel = () => {
                            <div className="space-y-4 mb-6">
                              {group.options.map((row, optionIndex) => (
                                <motion.div 
-                                 key={row.id}
+                                 key={`${selectedQuote.cotizacion_id}-${group.item.id}-${row.id || optionIndex}`}
                                  initial={{ opacity: 0, x: -20 }}
                                  animate={{ opacity: 1, x: 0 }}
                                  transition={{ delay: (groupIndex * 0.1) + (optionIndex * 0.05) }}

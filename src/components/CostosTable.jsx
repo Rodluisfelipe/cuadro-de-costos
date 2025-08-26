@@ -955,18 +955,25 @@ const CostosTable = () => {
       }
 
       // Guardar en la base de datos
-      console.log('💾 Guardando cotización en BD para aprobación...')
-      await saveCotizacion(quote)
+      console.log('💾 [DEBUG] Guardando cotización en BD para aprobación...')
+      console.log('💾 [DEBUG] Datos de la cotización:', quote)
+      
+      const saveResult = await saveCotizacion(quote)
+      console.log('💾 [DEBUG] Resultado del guardado:', saveResult)
       
       // Obtener la cotización guardada con su ID de BD
+      console.log('🔍 [DEBUG] Buscando cotización guardada...')
       const savedQuote = await getCotizacionById(quote.cotizacion_id)
       
       if (!savedQuote) {
+        console.error('❌ [DEBUG] No se pudo recuperar la cotización guardada')
         throw new Error('No se pudo recuperar la cotización guardada')
       }
 
-      console.log('✅ Cotización enviada para aprobación exitosamente')
-      console.log('📊 ID de BD:', savedQuote.id, 'ID de Cotización:', savedQuote.cotizacion_id)
+      console.log('✅ [DEBUG] Cotización enviada para aprobación exitosamente')
+      console.log('📊 [DEBUG] ID de BD:', savedQuote.id, 'ID de Cotización:', savedQuote.cotizacion_id)
+      console.log('📊 [DEBUG] Estado de la cotización:', savedQuote.status)
+      console.log('📊 [DEBUG] Cotización completa guardada:', savedQuote)
       
       // Mostrar mensaje de éxito
       alert('✅ Cotización enviada para aprobación exitosamente.\n\nLa cotización ahora está disponible en el Panel de Revisor para su revisión.')
@@ -2972,7 +2979,7 @@ const CostosTable = () => {
           >
             <div className="min-h-screen">
               {/* Header Moderno */}
-                <motion.div
+            <motion.div
                 initial={{ y: -50, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
                 transition={{ duration: 0.6, ease: "easeOut" }}
@@ -2984,7 +2991,7 @@ const CostosTable = () => {
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
                         <FileText className="w-6 h-6 text-white" />
-                      </div>
+              </div>
                       <div>
                         <h1 className="text-2xl lg:text-3xl font-bold text-white">
                           Panel de Aprobación
@@ -2992,8 +2999,8 @@ const CostosTable = () => {
                         <p className="text-blue-200 text-sm lg:text-base">
                           Revisa y decide sobre esta cotización
                     </p>
-                        </div>
-                        </div>
+                  </div>
+                </div>
 
                     {/* Información Rápida */}
                     <div className="flex flex-wrap gap-3">
@@ -3001,14 +3008,14 @@ const CostosTable = () => {
                         <div className="text-xs text-blue-200">ID</div>
                         <div className="font-mono font-semibold text-white text-sm">
                           {approvalQuote.cotizacion_id.split('-')[1]?.slice(0, 8) || approvalQuote.cotizacion_id}
-                        </div>
-                      </div>
+                </div>
+                </div>
                       <div className="bg-white/10 backdrop-blur-sm rounded-lg px-3 py-2 border border-white/20">
                         <div className="text-xs text-blue-200">Vendedor</div>
                         <div className="font-semibold text-white text-sm">
                           {approvalQuote.vendorName || 'No especificado'}
+              </div>
                         </div>
-                      </div>
                       <div className="bg-white/10 backdrop-blur-sm rounded-lg px-3 py-2 border border-white/20">
                         <div className="text-xs text-blue-200">Cliente</div>
                         <div className="font-semibold text-white text-sm">

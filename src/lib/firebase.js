@@ -132,14 +132,33 @@ export const firebaseQuotesService = {
       const querySnapshot = await getDocs(q)
       const cotizaciones = []
       
+      // Función helper para convertir timestamps de forma segura
+      const safeConvertTimestamp = (timestamp) => {
+        if (!timestamp) return null
+        if (timestamp.toDate && typeof timestamp.toDate === 'function') {
+          return timestamp.toDate()
+        }
+        if (timestamp instanceof Date) {
+          return timestamp
+        }
+        if (typeof timestamp === 'string') {
+          return new Date(timestamp)
+        }
+        if (typeof timestamp === 'number') {
+          return new Date(timestamp)
+        }
+        return null
+      }
+      
       querySnapshot.forEach((doc) => {
+        const data = doc.data()
         cotizaciones.push({
           firebaseId: doc.id,
-          ...doc.data(),
-          // Convertir timestamps a fechas
-          createdAt: doc.data().createdAt?.toDate(),
-          updatedAt: doc.data().updatedAt?.toDate(),
-          approvalDate: doc.data().approvalDate?.toDate()
+          ...data,
+          // Convertir timestamps a fechas de forma segura
+          createdAt: safeConvertTimestamp(data.createdAt),
+          updatedAt: safeConvertTimestamp(data.updatedAt),
+          approvalDate: safeConvertTimestamp(data.approvalDate)
         })
       })
       
@@ -179,12 +198,32 @@ export const firebaseQuotesService = {
       }
       
       const doc = querySnapshot.docs[0]
+      const data = doc.data()
+      
+      // Función helper para convertir timestamps de forma segura
+      const safeConvertTimestamp = (timestamp) => {
+        if (!timestamp) return null
+        if (timestamp.toDate && typeof timestamp.toDate === 'function') {
+          return timestamp.toDate()
+        }
+        if (timestamp instanceof Date) {
+          return timestamp
+        }
+        if (typeof timestamp === 'string') {
+          return new Date(timestamp)
+        }
+        if (typeof timestamp === 'number') {
+          return new Date(timestamp)
+        }
+        return null
+      }
+      
       const cotizacion = {
         firebaseId: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate(),
-        approvalDate: doc.data().approvalDate?.toDate()
+        ...data,
+        createdAt: safeConvertTimestamp(data.createdAt),
+        updatedAt: safeConvertTimestamp(data.updatedAt),
+        approvalDate: safeConvertTimestamp(data.approvalDate)
       }
       
       console.log('✅ Cotización encontrada en Firebase')
@@ -250,13 +289,33 @@ export const firebaseQuotesService = {
       
       return onSnapshot(q, (querySnapshot) => {
         const cotizaciones = []
+        
+        // Función helper para convertir timestamps de forma segura
+        const safeConvertTimestamp = (timestamp) => {
+          if (!timestamp) return null
+          if (timestamp.toDate && typeof timestamp.toDate === 'function') {
+            return timestamp.toDate()
+          }
+          if (timestamp instanceof Date) {
+            return timestamp
+          }
+          if (typeof timestamp === 'string') {
+            return new Date(timestamp)
+          }
+          if (typeof timestamp === 'number') {
+            return new Date(timestamp)
+          }
+          return null
+        }
+        
         querySnapshot.forEach((doc) => {
+          const data = doc.data()
           cotizaciones.push({
             firebaseId: doc.id,
-            ...doc.data(),
-            createdAt: doc.data().createdAt?.toDate(),
-            updatedAt: doc.data().updatedAt?.toDate(),
-            approvalDate: doc.data().approvalDate?.toDate()
+            ...data,
+            createdAt: safeConvertTimestamp(data.createdAt),
+            updatedAt: safeConvertTimestamp(data.updatedAt),
+            approvalDate: safeConvertTimestamp(data.approvalDate)
           })
         })
         
